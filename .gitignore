@@ -1,0 +1,27 @@
+# Environment
+.env
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Ollama
+.ollama/
+
+# Workspace
+workspace/

@@ -1,0 +1,47 @@
+Ollama Setup Summary
+====================
+
+Provider: Ollama (local LLM runner)
+Model: Gemma 4 E4B (~6GB RAM)
+Target: MacBook Pro 16GB (Apple Silicon)
+
+Setup
+-----
+- Ollama runs on host (not Docker) — macOS Docker cannot access Metal GPU
+- Backend connects via OLLAMA_BASE_URL=http://host.docker.internal:11434
+- LiteLLM abstracts provider — switch between ollama/anthropic/openai via .env
+
+Model Choice
+------------
+- Gemma 4 E4B: best fit for 16GB — multimodal, 128K context, ~6GB RAM
+- Gemma 4 26B/31B: too large for 16GB (need 18-20+ GB)
+- Alternatives considered: Qwen 2.5 Coder 14B, DeepSeek R1 14B, Llama 3.3 8B
+
+Why Ollama
+----------
+- Simplest setup for team onboarding
+- LiteLLM already supports it
+- Largest model ecosystem (day-one support for new releases)
+- Alternatives (LM Studio, Jan, vLLM, Docker Model Runner) solve problems we don't have
+
+Deployment Strategy
+-------------------
+- Local dev: Ollama + Gemma 4 E4B (free, private, offline)
+- Production: Anthropic API + Claude (best quality for agentic coding)
+- Switch via LLM_PROVIDER in .env — no code changes needed
+
+How to Setup Ollama
+-------------------
+1. Install:        brew install ollama
+2. Start server:   ollama serve
+3. Pull model:     ollama pull gemma4:e4b
+4. Verify:         ollama list
+5. Copy env:       cp .env.example .env
+6. Run app:        docker compose up
+
+Files Changed
+-------------
+- .env / .env.example: updated OLLAMA_MODEL from gemma3:4b to gemma4:e4b
+- frontend/Dockerfile: changed from nginx prod build to Vite dev server
+- frontend/entrypoint.sh: runs npm run dev instead of nginx
+- docker-compose.yml: added volume mount for frontend hot-reload
