@@ -30,9 +30,8 @@ export default function ChatInput({ input, setInput, onSend, isLoading }) {
           onClick={onSend}
           disabled={!input.trim() || isLoading}
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <line x1="22" y1="2" x2="11" y2="13" />
-            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          <svg viewBox="0 0 32 32" fill="none" width="20" height="20">
+            <path d="M16 6.125a.89.89 0 0 0-.265.04l-.014.006a.869.869 0 0 0-.273.15l-.067.06-7.5 7.5a.876.876 0 0 0 1.239 1.238l6.005-6.006V25a.875.875 0 1 0 1.75 0V9.113l6.006 6.006a.876.876 0 0 0 1.239-1.238l-7.5-7.5a.89.89 0 0 0-.414-.232.874.874 0 0 0-.15-.021l-.027-.002L16 6.125z" fill="currentColor" />
           </svg>
         </button>
       </div>

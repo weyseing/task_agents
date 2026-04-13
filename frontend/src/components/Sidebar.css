@@ -15,9 +15,12 @@
 }
 
 .sidebar-logo {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
-  color: #7c3aed;
+  background: linear-gradient(to right, #4f6ef7, #6366f1);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   padding: 8px 12px;
   margin-bottom: 8px;
 }

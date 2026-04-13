@@ -12,6 +12,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./workspace:/workspace
+      - ./backend:/app
     restart: unless-stopped
 
   frontend:

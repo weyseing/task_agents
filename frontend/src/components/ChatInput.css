@@ -58,19 +58,28 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border: none;
   background: #e0e0e0;
   color: #fff;
   border-radius: 50%;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 0.15s;
+  transition: all 0.15s;
 }
 
 .chat-input-send.active {
-  background: #7c3aed;
+  background: linear-gradient(to right, #4f6ef7, #6366f1);
+}
+
+.chat-input-send.active:hover {
+  filter: brightness(0.95);
+}
+
+.chat-input-send.active:active {
+  filter: brightness(0.9);
+  transform: scale(0.98);
 }
 
 .chat-input-send:disabled {
