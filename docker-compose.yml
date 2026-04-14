@@ -1,18 +1,41 @@
 services:
+  db:
+    container_name: task_agents_db
+    image: postgres:16-alpine
+    ports:
+      - "5491:5432"
+    environment:
+      POSTGRES_USER: taskagents
+      POSTGRES_PASSWORD: taskagents
+      POSTGRES_DB: taskagents
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskagents"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   backend:
     container_name: task_agents_api
     build:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "8890:8000"
     env_file:
       - .env
+    environment:
+      - DATABASE_URL=postgresql://taskagents:taskagents@db:5432/taskagents
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./workspace:/workspace
       - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
   frontend:
@@ -21,11 +44,16 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "8891:3000"
     environment:
-      - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=http://localhost:8890
     volumes:
       - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/index.html:/app/index.html
     depends_on:
       - backend
     restart: unless-stopped
+
+volumes:
+  pgdata:

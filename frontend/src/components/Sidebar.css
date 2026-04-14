@@ -6,6 +6,14 @@
   flex-direction: column;
   padding: 16px 12px;
   flex-shrink: 0;
+  overflow: hidden;
+  transition: width 0.2s ease;
+}
+
+.sidebar.collapsed {
+  width: 60px;
+  padding: 16px 8px;
+  align-items: center;
 }
 
 .sidebar-top {
@@ -14,16 +22,126 @@
   gap: 4px;
 }
 
-.sidebar-logo {
-  font-size: 18px;
-  font-weight: 600;
-  background: linear-gradient(to right, #4f6ef7, #6366f1);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  padding: 8px 12px;
+/* --- Logo row (expanded) --- */
+
+.sidebar-logo-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 0 12px;
   margin-bottom: 8px;
 }
+
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+}
+
+.sidebar-logo-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+}
+
+/* --- Collapse toggle button (expanded sidebar) --- */
+
+.sidebar-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: none;
+  border-radius: 10px;
+  cursor: pointer;
+  color: #999;
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+
+.sidebar-collapse-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #333;
+}
+
+/* --- Collapsed top layout --- */
+
+.sidebar-top-collapsed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Collapsed logo button with hover-to-reveal expand icon */
+.sidebar-collapsed-logo {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: none;
+  border-radius: 10px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.sidebar-collapsed-logo:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.sidebar-logo-icon-collapsed {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  transition: opacity 0.15s;
+}
+
+.sidebar-collapsed-expand-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.sidebar-collapsed-logo:hover .sidebar-logo-icon-collapsed {
+  opacity: 0;
+}
+
+.sidebar-collapsed-logo:hover .sidebar-collapsed-expand-icon {
+  opacity: 1;
+  color: #333;
+}
+
+.sidebar-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: none;
+  border-radius: 10px;
+  cursor: pointer;
+  color: #333;
+}
+
+.sidebar-icon-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* --- Expanded buttons --- */
 
 .sidebar-btn {
   display: flex;
@@ -48,15 +166,251 @@
   font-weight: 500;
 }
 
+.sidebar-search {
+  margin: 4px 0;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.sidebar-search:focus {
+  border-color: #6366f1;
+}
+
 .sidebar-history {
-  margin-top: 24px;
-  padding: 0 12px;
+  margin-top: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.sidebar-group {
+  margin-bottom: 8px;
 }
 
 .sidebar-label {
-  font-size: 12px;
+  display: block;
+  font-size: 11px;
   font-weight: 500;
   color: #999;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  padding: 4px 8px;
+  margin-bottom: 2px;
+}
+
+.sidebar-empty {
+  display: block;
+  font-size: 13px;
+  color: #aaa;
+  padding: 8px 12px;
+}
+
+/* --- Conversation item (Claude style) --- */
+
+.sidebar-conv-wrapper {
+  position: relative;
+}
+
+.sidebar-conv {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 32px;
+  padding: 6px 12px 6px 8px;
+  border: none;
+  background: none;
+  font-size: 14px;
+  color: #333;
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  user-select: none;
+  outline-offset: -2px;
+}
+
+.sidebar-conv:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.sidebar-conv:active {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.sidebar-conv.active {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.sidebar-conv.active .sidebar-conv-title {
+  font-weight: 500;
+}
+
+.sidebar-conv.menu-open {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.sidebar-conv-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Three-dot trigger */
+.sidebar-conv-menu-trigger {
+  display: none;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  margin-right: -8px;
+  border-radius: 6px;
+  color: #999;
+}
+
+.sidebar-conv:hover .sidebar-conv-menu-trigger,
+.sidebar-conv.menu-open .sidebar-conv-menu-trigger {
+  display: flex;
+}
+
+.sidebar-conv-menu-trigger:hover {
+  color: #555;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* --- Dropdown menu (Claude style) --- */
+
+.conv-dropdown {
+  position: fixed;
+  z-index: 50;
+  min-width: 180px;
+  padding: 6px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.06),
+    0 4px 16px rgba(0, 0, 0, 0.1),
+    0 1px 3px rgba(0, 0, 0, 0.06);
+  animation: dropdown-in 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes dropdown-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.conv-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  background: none;
+  border-radius: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  color: #333;
+  user-select: none;
+}
+
+.conv-dropdown-item:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.conv-dropdown-item.destructive {
+  color: #e04040;
+}
+
+.conv-dropdown-item.destructive:hover {
+  background: rgba(224, 64, 64, 0.06);
+}
+
+.conv-dropdown-icon {
+  display: flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.conv-dropdown-label {
+  padding: 2px 4px;
+}
+
+.conv-dropdown-separator {
+  height: 0.5px;
+  background: rgba(0, 0, 0, 0.08);
+  margin: 6px 8px;
+}
+
+/* --- Rename inline form --- */
+
+.conv-dropdown-rename {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conv-dropdown-rename-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.conv-dropdown-rename-input:focus {
+  border-color: #6366f1;
+}
+
+.conv-dropdown-rename-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.conv-dropdown-rename-btn {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  font-weight: 500;
+  background: #333;
+  color: #fff;
+}
+
+.conv-dropdown-rename-btn:hover {
+  background: #222;
+}
+
+.conv-dropdown-rename-btn.cancel {
+  background: none;
+  color: #666;
+}
+
+.conv-dropdown-rename-btn.cancel:hover {
+  background: rgba(0, 0, 0, 0.05);
 }

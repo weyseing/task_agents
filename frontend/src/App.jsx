@@ -1,9 +1,11 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import Sidebar from "./components/Sidebar";
 import ChatHome from "./components/ChatHome";
 import ChatMessages from "./components/ChatMessages";
 import ChatInput from "./components/ChatInput";
 import "./App.css";
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export default function App() {
   const [messages, setMessages] = useState([]);
@@ -11,7 +13,55 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [chatStarted, setChatStarted] = useState(false);
+  const [conversationId, setConversationId] = useState(null);
+  const [conversations, setConversations] = useState([]);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const lastUserRef = useRef(null);
+
+  const fetchConversations = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/conversations`);
+      const data = await res.json();
+      setConversations(data);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    fetchConversations();
+  }, [fetchConversations]);
+
+  const loadConversation = async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/api/conversations/${id}`);
+      const data = await res.json();
+      setMessages(data);
+      setConversationId(id);
+      setChatStarted(true);
+    } catch {}
+  };
+
+  const renameConversation = async (id, title) => {
+    try {
+      await fetch(`${API_URL}/api/conversations/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      setConversations((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, title } : c))
+      );
+    } catch {}
+  };
+
+  const deleteConversation = async (id) => {
+    try {
+      await fetch(`${API_URL}/api/conversations/${id}`, { method: "DELETE" });
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      if (conversationId === id) {
+        handleNewChat();
+      }
+    } catch {}
+  };
 
   const sendMessage = async (text) => {
     const content = text || input;
@@ -21,8 +71,7 @@ export default function App() {
     setInput("");
 
     const userMessage = { role: "user", content };
-    const updatedMessages = [...messages, userMessage];
-    setMessages(updatedMessages);
+    setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
 
     setTimeout(() => {
@@ -33,13 +82,14 @@ export default function App() {
       }
     }, 100);
 
-    const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
-
     try {
       const res = await fetch(`${API_URL}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: updatedMessages }),
+        body: JSON.stringify({
+          conversation_id: conversationId,
+          content,
+        }),
       });
 
       const reader = res.body.getReader();
@@ -63,6 +113,16 @@ export default function App() {
           if (!data) continue;
           try {
             const parsed = JSON.parse(data);
+
+            // First event contains conversation_id
+            if (parsed.conversation_id) {
+              setConversationId(parsed.conversation_id);
+              if (parsed.is_new) {
+                fetchConversations();
+              }
+              continue;
+            }
+
             if (parsed.thinking) {
               if (!thinkStartTime) thinkStartTime = Date.now();
               thinkingContent += parsed.thinking;
@@ -98,6 +158,9 @@ export default function App() {
           } catch {}
         }
       }
+
+      // Refresh conversation list to update timestamps
+      fetchConversations();
     } catch (err) {
       setMessages((prev) => [
         ...prev,
@@ -112,12 +175,22 @@ export default function App() {
   const handleNewChat = () => {
     setMessages([]);
     setChatStarted(false);
+    setConversationId(null);
     setInput("");
   };
 
   return (
     <div className="app">
-      <Sidebar onNewChat={handleNewChat} />
+      <Sidebar
+        conversations={conversations}
+        activeId={conversationId}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
+        onNewChat={handleNewChat}
+        onSelect={loadConversation}
+        onRename={renameConversation}
+        onDelete={deleteConversation}
+      />
       <main className="main">
         {!chatStarted ? (
           <ChatHome onSend={sendMessage} />
