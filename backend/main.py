@@ -105,10 +105,12 @@ async def chat(request: Request):
     # Save the user message
     await save_message(conversation_id, "user", user_content)
 
-    # Load full history from DB
+    # Load recent history from DB (sliding window to avoid exceeding context length)
+    MAX_HISTORY = 20
     history = await get_conversation_messages(conversation_id)
+    recent = history[-MAX_HISTORY:]
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + [
-        {"role": m["role"], "content": m["content"]} for m in history
+        {"role": m["role"], "content": m["content"]} for m in recent
     ]
 
     async def event_stream():
