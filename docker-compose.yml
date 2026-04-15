@@ -33,6 +33,7 @@ services:
     volumes:
       - ./workspace:/workspace
       - ./backend:/app
+      - ./cli:/cli
     depends_on:
       db:
         condition: service_healthy
