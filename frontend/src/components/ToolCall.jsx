@@ -4,6 +4,7 @@ import "./ToolCall.css";
 const TOOL_LABELS = {
   gmail_read: "Read Email",
   gmail_send: "Send Email",
+  web_search: "Web Search",
 };
 
 function formatArgs(name, args) {
@@ -14,6 +15,8 @@ function formatArgs(name, args) {
       return args.query || "in:inbox";
     case "gmail_send":
       return `To: ${args.to}`;
+    case "web_search":
+      return args.query || "";
     default:
       return Object.entries(args)
         .map(([k, v]) => `${k}: ${v}`)
@@ -88,6 +91,63 @@ function GmailSendResult({ data }) {
   );
 }
 
+function getDomain(url) {
+  try {
+    return new URL(url).hostname.replace("www.", "");
+  } catch {
+    return url;
+  }
+}
+
+function getFavicon(url) {
+  try {
+    const hostname = new URL(url).hostname;
+    return `https://www.google.com/s2/favicons?sz=32&domain=${hostname}`;
+  } catch {
+    return null;
+  }
+}
+
+function WebSearchResult({ data }) {
+  const hasImages = data.images && data.images.length > 0;
+  const hasResults = data.results && data.results.length > 0;
+
+  if (!hasImages && !hasResults) {
+    return <div className="email-empty">No results found for &quot;{data.query}&quot;</div>;
+  }
+
+  return (
+    <div className="search-combined">
+      {hasImages && (
+        <div className="image-carousel">
+          {data.images.map((r, i) => (
+            <a key={i} className="image-card" href={r.url} target="_blank" rel="noopener noreferrer">
+              <img src={r.thumbnail || r.image} alt={r.title} loading="lazy" />
+              <div className="image-card-overlay">
+                <span>{r.title}</span>
+              </div>
+            </a>
+          ))}
+        </div>
+      )}
+      {hasResults && (
+        <div className="search-results">
+          {data.results.map((r, i) => (
+            <a key={i} className="search-card" href={r.url} target="_blank" rel="noopener noreferrer">
+              <div className="search-card-site">
+                {getFavicon(r.url) && <img className="search-card-favicon" src={getFavicon(r.url)} alt="" />}
+                <span className="search-card-domain">{getDomain(r.url)}</span>
+              </div>
+              <div className="search-card-title">{r.title}</div>
+              <div className="search-card-snippet">{r.snippet}</div>
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ToolResult({ name, data }) {
   if (!data) return null;
   if (data.error) return <div className="tool-error">{data.error}</div>;
@@ -97,6 +157,8 @@ function ToolResult({ name, data }) {
       return <GmailReadResult data={data} />;
     case "gmail_send":
       return <GmailSendResult data={data} />;
+    case "web_search":
+      return <WebSearchResult data={data} />;
     default:
       return <pre className="tool-raw">{JSON.stringify(data, null, 2)}</pre>;
   }
@@ -108,6 +170,28 @@ export default function ToolCall({ toolCall }) {
   const isRunning = status === "running";
   const label = TOOL_LABELS[name] || name;
 
+  // Web search: render result directly without expander wrapper
+  if (name === "web_search") {
+    if (isRunning) {
+      return (
+        <div className="tool-call running">
+          <div className="tool-call-header">
+            <div className="tool-call-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
+              </svg>
+            </div>
+            <span className="tool-call-name">{label}</span>
+            <span className="tool-call-summary">{formatArgs(name, args)}</span>
+            <div className="tool-call-status"><div className="tool-call-spinner" /></div>
+          </div>
+        </div>
+      );
+    }
+    return data ? <ToolResult name={name} data={data} /> : null;
+  }
+
+  // Other tools: standard expander
   return (
     <div className={`tool-call ${isRunning ? "running" : "done"}`}>
       <button className="tool-call-header" onClick={() => setExpanded(!expanded)}>

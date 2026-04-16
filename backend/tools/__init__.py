@@ -2,10 +2,12 @@
 
 from tools.gmail_read import SCHEMA as GMAIL_READ_SCHEMA, handler as gmail_read
 from tools.gmail_send import SCHEMA as GMAIL_SEND_SCHEMA, handler as gmail_send
+from tools.web_search import SCHEMA as WEB_SEARCH_SCHEMA, handler as web_search
 
 REGISTRY = {
     "gmail_read": {"schema": GMAIL_READ_SCHEMA, "handler": gmail_read},
     "gmail_send": {"schema": GMAIL_SEND_SCHEMA, "handler": gmail_send},
+    "web_search": {"schema": WEB_SEARCH_SCHEMA, "handler": web_search},
 }
 
 

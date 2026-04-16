@@ -60,6 +60,13 @@ async def run_agent(
             if delta.tool_calls:
                 for tc in delta.tool_calls:
                     idx = tc.index
+
+                    # Detect if model reuses same index for a NEW tool call
+                    # (new id on an index that already has data)
+                    if idx in tool_calls_acc and tc.id and tool_calls_acc[idx]["id"] and tc.id != tool_calls_acc[idx]["id"]:
+                        # Bump to a new index
+                        idx = max(tool_calls_acc.keys()) + 1
+
                     if idx not in tool_calls_acc:
                         tool_calls_acc[idx] = {
                             "id": "",
@@ -69,13 +76,25 @@ async def run_agent(
                         tool_calls_acc[idx]["id"] = tc.id
                     if tc.function:
                         if tc.function.name:
-                            tool_calls_acc[idx]["function"][
-                                "name"
-                            ] += tc.function.name
+                            tool_calls_acc[idx]["function"]["name"] = tc.function.name
                         if tc.function.arguments:
-                            tool_calls_acc[idx]["function"][
-                                "arguments"
-                            ] += tc.function.arguments
+                            existing = tool_calls_acc[idx]["function"]["arguments"]
+                            fragment = tc.function.arguments
+                            # New complete JSON object on an index that already
+                            # has complete args → treat as a separate tool call
+                            if existing.rstrip().endswith("}") and fragment.lstrip().startswith("{"):
+                                new_idx = max(tool_calls_acc.keys()) + 1
+                                tool_calls_acc[new_idx] = {
+                                    "id": f"call_{uuid.uuid4().hex[:8]}",
+                                    "function": {
+                                        "name": tool_calls_acc[idx]["function"]["name"],
+                                        "arguments": fragment,
+                                    },
+                                }
+                            elif not existing or not fragment.startswith(existing):
+                                tool_calls_acc[idx]["function"]["arguments"] += fragment
+                            else:
+                                tool_calls_acc[idx]["function"]["arguments"] = fragment
 
         # No tool calls — final response, done
         if not tool_calls_acc:

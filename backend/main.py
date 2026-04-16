@@ -59,7 +59,8 @@ Tool guidelines:
   Step 1: Draft the email (to, subject, body) in your response text and ask the user to confirm.
   Step 2: When the user confirms (e.g. "yes", "send it", "looks good"), call gmail_send EXACTLY ONCE with the drafted content. Never call gmail_send more than once.
 - When showing email search results, summarize the key information clearly.
-- Gmail search uses absolute dates: after:2026/04/09, before:2026/04/16. Never use relative date syntax."""
+- Gmail search uses absolute dates: after:2026/04/09, before:2026/04/16. Never use relative date syntax.
+- After a web search, write ONE short combined summary of the findings. Do not repeat titles, URLs, or snippets already visible in the tool results widget. Do not separate into "Text Summary" and "Image Summary". Just give a brief, useful answer."""
 
 
 @app.get("/health")
