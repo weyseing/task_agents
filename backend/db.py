@@ -1,3 +1,4 @@
+import json
 import os
 import uuid
 from datetime import datetime
@@ -28,6 +29,7 @@ async def init_db():
                 role TEXT NOT NULL,
                 content TEXT NOT NULL DEFAULT '',
                 thinking TEXT,
+                tool_calls JSONB,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             );
             CREATE INDEX IF NOT EXISTS idx_messages_conversation
@@ -35,6 +37,10 @@ async def init_db():
             CREATE INDEX IF NOT EXISTS idx_conversations_updated
                 ON conversations(updated_at DESC);
         """)
+        # Migration for existing tables
+        await conn.execute(
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS tool_calls JSONB"
+        )
 
 
 async def close_db():
@@ -74,30 +80,37 @@ async def get_conversations() -> list[dict]:
 async def get_conversation_messages(conversation_id: str) -> list[dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT role, content, thinking FROM messages WHERE conversation_id = $1 ORDER BY created_at",
+            "SELECT role, content, thinking, tool_calls FROM messages WHERE conversation_id = $1 ORDER BY created_at",
             uuid.UUID(conversation_id),
         )
-    return [
-        {
-            "role": r["role"],
-            "content": r["content"],
-            **({"thinking": r["thinking"]} if r["thinking"] else {}),
-        }
-        for r in rows
-    ]
+    results = []
+    for r in rows:
+        msg = {"role": r["role"], "content": r["content"]}
+        if r["thinking"]:
+            msg["thinking"] = r["thinking"]
+        if r["tool_calls"]:
+            tc = r["tool_calls"]
+            msg["tool_calls"] = json.loads(tc) if isinstance(tc, str) else tc
+        results.append(msg)
+    return results
 
 
 async def save_message(
-    conversation_id: str, role: str, content: str, thinking: str | None = None
+    conversation_id: str,
+    role: str,
+    content: str,
+    thinking: str | None = None,
+    tool_calls: list | None = None,
 ):
     async with pool.acquire() as conn:
         await conn.execute(
-            "INSERT INTO messages (id, conversation_id, role, content, thinking) VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO messages (id, conversation_id, role, content, thinking, tool_calls) VALUES ($1, $2, $3, $4, $5, $6)",
             uuid.uuid4(),
             uuid.UUID(conversation_id),
             role,
             content,
             thinking,
+            json.dumps(tool_calls) if tool_calls else None,
         )
         await conn.execute(
             "UPDATE conversations SET updated_at = now() WHERE id = $1",

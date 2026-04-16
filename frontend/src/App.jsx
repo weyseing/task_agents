@@ -34,7 +34,18 @@ export default function App() {
     try {
       const res = await fetch(`${API_URL}/api/conversations/${id}`);
       const data = await res.json();
-      setMessages(data);
+      setMessages(
+        data.map((msg) => ({
+          ...msg,
+          tool_calls: msg.tool_calls?.map((tc) => ({
+            id: tc.id,
+            name: tc.name,
+            args: tc.args,
+            status: "done",
+            data: tc.result,
+          })),
+        }))
+      );
       setConversationId(id);
       setChatStarted(true);
     } catch {}
@@ -96,10 +107,34 @@ export default function App() {
       const decoder = new TextDecoder();
       let thinkingContent = "";
       let responseContent = "";
+      let toolCalls = [];
       let added = false;
       let stillThinking = true;
       let thinkStartTime = null;
       let thinkDuration = null;
+
+      const updateMessage = () => {
+        const msg = {
+          role: "assistant",
+          content: responseContent,
+          thinking: thinkingContent,
+          tool_calls: toolCalls.length > 0 ? [...toolCalls] : undefined,
+          isThinking: stillThinking,
+          thinkDuration,
+        };
+        if (!added) {
+          added = true;
+          setIsLoading(false);
+          setIsStreaming(true);
+          setMessages((prev) => [...prev, msg]);
+        } else {
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = msg;
+            return updated;
+          });
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -126,6 +161,7 @@ export default function App() {
             if (parsed.thinking) {
               if (!thinkStartTime) thinkStartTime = Date.now();
               thinkingContent += parsed.thinking;
+              updateMessage();
             }
             if (parsed.content) {
               if (stillThinking && thinkStartTime) {
@@ -133,27 +169,20 @@ export default function App() {
               }
               stillThinking = false;
               responseContent += parsed.content;
+              updateMessage();
             }
-            if (parsed.thinking || parsed.content) {
-              const msg = {
-                role: "assistant",
-                content: responseContent,
-                thinking: thinkingContent,
-                isThinking: stillThinking,
-                thinkDuration,
-              };
-              if (!added) {
-                added = true;
-                setIsLoading(false);
-                setIsStreaming(true);
-                setMessages((prev) => [...prev, msg]);
-              } else {
-                setMessages((prev) => {
-                  const updated = [...prev];
-                  updated[updated.length - 1] = msg;
-                  return updated;
-                });
-              }
+            if (parsed.tool_call) {
+              stillThinking = false;
+              toolCalls = [...toolCalls, { ...parsed.tool_call, status: "running" }];
+              updateMessage();
+            }
+            if (parsed.tool_result) {
+              toolCalls = toolCalls.map((tc) =>
+                tc.id === parsed.tool_result.id
+                  ? { ...tc, status: "done", data: parsed.tool_result.data }
+                  : tc
+              );
+              updateMessage();
             }
           } catch {}
         }

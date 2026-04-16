@@ -2,30 +2,53 @@
 
 ## Overview
 
-A company-internal AI coding assistant with a custom web UI, powered by LangGraph. Provides Claude Code-like agent capabilities (file editing, code search, bash execution, planning, error recovery) through a user-friendly interface for team members.
+A company-internal AI assistant with a custom web UI. Provides an agentic tool-calling loop with SSE streaming through a user-friendly chat interface for team members.
 
 ## Architecture
 
-- **Frontend**: React + Vite (chat UI with streaming, tool call visualization, diff viewer)
+- **Frontend**: React + Vite (chat UI with streaming, tool call widgets)
 - **Backend**: Python + FastAPI (SSE streaming to frontend)
-- **Agent**: LangGraph (state machine with planning, execution, error recovery, sub-agents)
-- **LLM**: LiteLLM provider abstraction (supports Claude, OpenAI, local LLMs)
-- **Tools**: Read, Edit, Write, Bash, Glob, Grep, WebSearch
+- **Agent**: LiteLLM + manual tool-calling loop (`backend/agent.py`)
+- **LLM**: LiteLLM provider abstraction (supports Ollama, Claude, OpenAI, Gemini, etc.)
+- **Tools**: Gmail Read/Search, Gmail Send (extensible registry in `backend/tools/`)
 
 ## Project Structure
 
 ```
 task_agents/
 ├── backend/              # Python + FastAPI
-│   ├── agents/           # LangGraph agent definitions
-│   ├── tools/            # Tool implementations (read, edit, bash, etc.)
-│   ├── api/              # FastAPI routes
-│   └── main.py           # Entry point
+│   ├── agent.py          # Agent loop (LiteLLM + tool calling)
+│   ├── tools/            # Tool registry and implementations
+│   │   ├── __init__.py   # get_tools(), execute_tool()
+│   │   ├── gmail_read.py # Search and read emails
+│   │   └── gmail_send.py # Send emails
+│   ├── db.py             # PostgreSQL (asyncpg)
+│   └── main.py           # FastAPI entry point
 ├── frontend/             # React + Vite
 │   ├── src/
-│   │   ├── components/   # Chat UI, tool cards, diff viewer
-│   │   └── hooks/        # SSE streaming hooks
+│   │   ├── App.jsx       # SSE streaming + state management
+│   │   └── components/   # Chat UI, ToolCall widget, Gmail result renderers
 │   └── index.html
+├── cli/                  # Standalone CLI tools
+│   ├── gmail/            # Gmail OAuth + read/send scripts
+│   ├── database/         # DB management scripts
+│   └── ollama/           # Model management scripts
 └── CLAUDE.md
 ```
 
+## SSE Event Contract
+
+```
+{"conversation_id": "...", "is_new": bool}   — first event
+{"thinking": "..."}                          — thinking text chunk
+{"content": "..."}                           — response text chunk
+{"tool_call": {"id", "name", "args"}}        — tool invocation
+{"tool_result": {"id", "name", "data"}}      — tool result (structured JSON)
+{"done": true}                               — final event
+```
+
+## Adding New Tools
+
+1. Create `backend/tools/<name>.py` with `SCHEMA` dict and `async handler(**args)` function
+2. Register in `backend/tools/__init__.py` REGISTRY
+3. Create a result renderer component in `frontend/src/components/ToolCall.jsx`

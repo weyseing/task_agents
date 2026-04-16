@@ -1,12 +1,13 @@
-import os
 import json
-import httpx
 from contextlib import asynccontextmanager
+from datetime import date
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
+from agent import run_agent
 from db import (
     init_db,
     close_db,
@@ -35,17 +36,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma4:e4b")
 
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
-SYSTEM_PROMPT = """You are Task Agents, a professional AI coding assistant.
+def get_system_prompt() -> str:
+    today = date.today().strftime("%Y/%m/%d")
+    return f"""You are Task Agents, a professional AI assistant with access to tools.
 
 Rules:
 - Be concise and direct. Avoid filler words.
@@ -53,7 +47,24 @@ Rules:
 - Use markdown for formatting: headings, code blocks, lists, tables.
 - For code, always specify the language in fenced code blocks.
 - When explaining, prioritize clarity over length.
-- If unsure, say so rather than guessing."""
+- If unsure, say so rather than guessing.
+
+The user's name is Jeremy Heng, email is hengweyseing531@gmail.com.
+Today's date is {today}.
+
+Tool guidelines:
+- You MUST use the gmail_read tool to read emails. Do not generate fake email data.
+- You MUST use the gmail_send tool to send emails. Do not just say "email sent" in text.
+- Sending emails is a two-step process:
+  Step 1: Draft the email (to, subject, body) in your response text and ask the user to confirm.
+  Step 2: When the user confirms (e.g. "yes", "send it", "looks good"), call gmail_send EXACTLY ONCE with the drafted content. Never call gmail_send more than once.
+- When showing email search results, summarize the key information clearly.
+- Gmail search uses absolute dates: after:2026/04/09, before:2026/04/16. Never use relative date syntax."""
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 
 # --- Conversation CRUD ---
@@ -87,7 +98,49 @@ async def remove_conversation(conversation_id: str):
     return JSONResponse({"ok": True})
 
 
-# --- Chat with history ---
+# --- Chat ---
+
+
+def build_llm_messages(history: list[dict]) -> list[dict]:
+    """Convert DB history to the LLM message format, expanding tool_calls."""
+    messages: list[dict] = [{"role": "system", "content": get_system_prompt()}]
+
+    for msg in history:
+        if msg["role"] == "user":
+            messages.append({"role": "user", "content": msg["content"]})
+
+        elif msg["role"] == "assistant":
+            if msg.get("tool_calls"):
+                # Reconstruct assistant message with tool_calls
+                tc_list = []
+                for tc in msg["tool_calls"]:
+                    tc_list.append(
+                        {
+                            "id": tc["id"],
+                            "type": "function",
+                            "function": {
+                                "name": tc["name"],
+                                "arguments": json.dumps(tc["args"]),
+                            },
+                        }
+                    )
+                messages.append({"role": "assistant", "tool_calls": tc_list})
+
+                # Reconstruct tool result messages
+                for tc in msg["tool_calls"]:
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": json.dumps(tc.get("result", {})),
+                        }
+                    )
+
+            # Final text content
+            if msg.get("content"):
+                messages.append({"role": "assistant", "content": msg["content"]})
+
+    return messages
 
 
 @app.post("/api/chat")
@@ -105,55 +158,41 @@ async def chat(request: Request):
     # Save the user message
     await save_message(conversation_id, "user", user_content)
 
-    # Load recent history from DB (sliding window to avoid exceeding context length)
+    # Load recent history and build LLM messages
     MAX_HISTORY = 20
     history = await get_conversation_messages(conversation_id)
     recent = history[-MAX_HISTORY:]
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + [
-        {"role": m["role"], "content": m["content"]} for m in recent
-    ]
+    messages = build_llm_messages(recent)
 
     async def event_stream():
-        # Send conversation_id as first event so frontend can track it
         yield json.dumps({"conversation_id": conversation_id, "is_new": is_new})
 
-        thinking_content = ""
         response_content = ""
+        tool_calls_data: list[dict] = []
 
-        async with httpx.AsyncClient(timeout=120) as client:
-            async with client.stream(
-                "POST",
-                f"{OLLAMA_BASE_URL}/api/chat",
-                json={
-                    "model": OLLAMA_MODEL,
-                    "messages": messages,
-                    "stream": True,
-                    "think": True,
-                },
-            ) as resp:
-                async for line in resp.aiter_lines():
-                    if not line:
-                        continue
-                    chunk = json.loads(line)
-                    msg = chunk.get("message", {})
-                    data = {}
-                    if msg.get("thinking"):
-                        thinking_content += msg["thinking"]
-                        data["thinking"] = msg["thinking"]
-                    if msg.get("content"):
-                        response_content += msg["content"]
-                        data["content"] = msg["content"]
-                    if data:
-                        yield json.dumps(data)
-                    if chunk.get("done"):
-                        yield json.dumps({"done": True})
+        async for event in run_agent(messages):
+            if "content" in event:
+                response_content += event["content"]
 
-        # Save assistant message after stream completes
+            if "tool_call" in event:
+                tool_calls_data.append(event["tool_call"])
+
+            if "tool_result" in event:
+                for tc in tool_calls_data:
+                    if tc["id"] == event["tool_result"]["id"]:
+                        tc["result"] = event["tool_result"]["data"]
+                        break
+
+            yield json.dumps(event)
+
+        yield json.dumps({"done": True})
+
+        # Persist assistant message
         await save_message(
             conversation_id,
             "assistant",
             response_content,
-            thinking_content or None,
+            tool_calls=tool_calls_data or None,
         )
 
     return EventSourceResponse(event_stream())

@@ -2,6 +2,7 @@ import { useRef, useEffect, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import AgentLogo from "./AgentLogo";
+import ToolCall from "./ToolCall";
 import "./ChatMessages.css";
 
 function MarkdownContent({ children, className }) {
@@ -102,10 +103,17 @@ export default function ChatMessages({ messages, isLoading, isStreaming, lastUse
               {msg.thinking && (
                 <ThinkingBlock thinking={msg.thinking} isThinking={msg.isThinking} thinkDuration={msg.thinkDuration} />
               )}
+              {msg.tool_calls && (
+                <div className="tool-calls">
+                  {msg.tool_calls.map((tc) => (
+                    <ToolCall key={tc.id} toolCall={tc} />
+                  ))}
+                </div>
+              )}
               {msg.content && (
                 <MarkdownContent className="message-bubble">{msg.content}</MarkdownContent>
               )}
-              {!msg.thinking && !msg.content && (
+              {!msg.thinking && !msg.tool_calls && !msg.content && (
                 <div className="message-logo">
                   <AgentLogo />
                 </div>
