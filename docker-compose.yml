@@ -15,7 +15,7 @@ services:
       interval: 2s
       timeout: 3s
       retries: 10
-    restart: unless-stopped
+    # restart: unless-stopped
 
   backend:
     container_name: task_agents_api
@@ -37,7 +37,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    restart: unless-stopped
+    # restart: unless-stopped
 
   frontend:
     container_name: task_agents_web
@@ -54,7 +54,7 @@ services:
       - ./frontend/index.html:/app/index.html
     depends_on:
       - backend
-    restart: unless-stopped
+    # restart: unless-stopped
 
 volumes:
   pgdata:
