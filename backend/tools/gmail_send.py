@@ -2,11 +2,9 @@
 
 import asyncio
 import base64
-import sys
 from email.mime.text import MIMEText
 
-sys.path.insert(0, "/cli/gmail")
-from auth import get_gmail_service
+from .gmail_auth import get_gmail_service
 
 SCHEMA = {
     "name": "gmail_send",

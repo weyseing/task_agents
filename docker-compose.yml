@@ -1,5 +1,5 @@
 services:
-  db:
+  task_agents_db:
     container_name: task_agents_db
     image: postgres:16-alpine
     ports:
@@ -15,19 +15,19 @@ services:
       interval: 2s
       timeout: 3s
       retries: 10
-    # restart: unless-stopped
 
-  backend:
+  task_agents_api:
     container_name: task_agents_api
     build:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8890:8000"
+      - "8890:8080"
     env_file:
       - .env
     environment:
       - DATABASE_URL=postgresql://taskagents:taskagents@db:5432/taskagents
+      - DEV=1
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -35,11 +35,10 @@ services:
       - ./backend:/app
       - ./cli:/cli
     depends_on:
-      db:
+      task_agents_db:
         condition: service_healthy
-    # restart: unless-stopped
 
-  frontend:
+  task_agents_web:
     container_name: task_agents_web
     build:
       context: ./frontend
@@ -53,8 +52,20 @@ services:
       - ./frontend/public:/app/public
       - ./frontend/index.html:/app/index.html
     depends_on:
-      - backend
-    # restart: unless-stopped
+      - task_agents_api
+
+  task_agents_cloud:
+    container_name: task_agents_cloud
+    build:
+      context: ./cloud
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    working_dir: /workspace/cloud/cli
+    volumes:
+      - ./cloud:/workspace/cloud
+      - ./backend:/workspace/backend:ro
+      - ./frontend:/workspace/frontend:ro
 
 volumes:
   pgdata:
