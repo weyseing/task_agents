@@ -1,0 +1,50 @@
+Deploy Backend — Next Missing Actions
+=====================================
+
+Target: Cloud Run (asia-southeast1), Neon DB already provisioned in ap-southeast-1.
+
+Blockers
+--------
+1. LITELLM_MODEL points at Ollama (host.docker.internal) — unreachable from Cloud Run.
+   Fix: switch .env to a hosted provider, e.g.
+     LITELLM_MODEL=anthropic/claude-sonnet-4-6
+
+2. Provider API key not declared in .env.example (the injection allowlist).
+   Fix: add to .env.example (empty) and .env (real value), e.g.
+     ANTHROPIC_API_KEY=
+
+3. GCP_PROJECT_ID empty in .env.
+   Fix: set it, or pass --project <id> to deploy_backend.sh.
+
+4. Service account in GOOGLE_CREDENTIALS_JSON needs roles:
+     roles/run.admin
+     roles/iam.serviceAccountUser
+     roles/cloudbuild.builds.editor
+     roles/artifactregistry.admin   (first-time only; writer after)
+     roles/storage.admin            (Cloud Build staging bucket)
+
+Boots fine, fails on tool-call
+------------------------------
+5. Gmail tools (backend/tools/gmail_auth.py) hardcode Path("/cli/gmail").
+   Path does not exist in Cloud Run; credentials.json/token.json not in image.
+   Options:
+     a) Copy creds into backend/tools/, change DIR to Path(__file__).parent.
+     b) Move creds to GCP Secret Manager (preferred long term).
+     c) Skip Gmail calls on first deploy.
+
+Nice-to-have
+------------
+6. Add backend/.dockerignore (exclude __pycache__, *.pyc).
+7. Trim unused apt packages from backend/Dockerfile (git, ripgrep).
+
+Deploy command
+--------------
+  docker compose exec -it task_agents_cloud bash cloudrun/deploy_backend.sh
+
+Already verified
+----------------
+- psql 17 client installed in cloud container
+- Neon connect.sh works end-to-end
+- .env.example mounted into cloud container for passthrough discovery
+- PORT binding honors Cloud Run $PORT
+- Region defaults (asia-southeast1 / aws-ap-southeast-1) applied

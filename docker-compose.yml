@@ -66,6 +66,7 @@ services:
       - ./cloud:/workspace/cloud
       - ./backend:/workspace/backend:ro
       - ./frontend:/workspace/frontend:ro
+      - ./.env.example:/workspace/.env.example:ro
 
 volumes:
   pgdata:
