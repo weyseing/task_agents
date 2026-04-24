@@ -1,0 +1,145 @@
+Backend on Cloud Run — End-to-End Working
+==========================================
+
+Live URL: https://task-agents-backend-2lx2ybxcwq-as.a.run.app
+Region:   asia-southeast1
+Region:   Neon DB in aws-ap-southeast-1
+
+Status
+------
+Backend is publicly invokable on Cloud Run, serving chat via Anthropic Haiku 4.5,
+persisting conversations to Neon.
+
+Smoke test (cloud/cli/cloudrun/healthcheck_backend.sh):
+  [1/3] GET  /health              ✓
+  [2/3] GET  /api/conversations   ✓  (DB reachable)
+  [3/3] POST /api/chat            ✓  (Haiku 4.5 streaming SSE)
+
+Cost estimate: ~$126/mo for 10 users (Haiku fast + Sonnet deep, 90/10 split).
+
+What was fixed today
+--------------------
+1. LLM swap: removed Ollama entirely, moved to Anthropic.
+     - backend/agent.py default model → anthropic/claude-haiku-4-5
+     - Dropped OLLAMA_API_BASE, api_base branch, cli/ollama/
+     - Removed extra_hosts: host.docker.internal from docker-compose.yml
+     - Env: LITELLM_MODEL=anthropic/claude-haiku-4-5
+            LITELLM_MODEL_DEEP=anthropic/claude-sonnet-4-6
+            ANTHROPIC_API_KEY=<set>
+
+2. Local dev fix: DATABASE_URL pointed at 'db:5432' but service is named
+   'task_agents_db'. Docker DNS only resolves service names.
+     - docker-compose.yml:29 → task_agents_db:5432
+
+3. Cleanup: removed empty workspace/ dir and its mount.
+
+4. Gmail local re-auth: OAuth token expired (Testing mode = 7-day lifetime).
+   Deleted cli/gmail/token.json, re-ran python /cli/gmail/auth.py interactively.
+
+5. Cloud Run public access — the big one.
+   Blocker: --allow-unauthenticated silently no-ops when the deploy principal
+   lacks run.services.setIamPolicy. roles/editor does NOT include it (carved
+   out because binding allUsers is privileged). Deploy "Setting IAM Policy..."
+   runs but the binding never persists → 403 at the edge.
+   Fix: granted roles/run.admin to the deploy service account via a
+   bootstrap script (cloud/setup/1_grant_gcloud_service_acc_permission.sh).
+   After re-deploy, service IAM policy correctly shows:
+     - allUsers → roles/run.invoker
+
+6. Tooling added:
+     - cloud/setup/1_grant_gcloud_service_acc_permission.sh
+         One-time bootstrap to grant run.admin. Auto-uses a user account
+         (via gcloud auth login) since the SA can't grant itself perms.
+         Ends by reverting active account + revoking Owner creds.
+     - cloud/cli/cloudrun/healthcheck_backend.sh
+         Three-check smoke test (health / DB / chat), colors, --url,
+         --message, --help. Auto-resolves URL via gcloud.
+
+Deploy pipeline (verified)
+--------------------------
+  source ./backend/
+    → uploaded to GCS staging bucket (ephemeral)
+    → Cloud Build compiles via Dockerfile
+    → image pushed to Artifact Registry
+         asia-southeast1-docker.pkg.dev/strategic-crow-341805/
+           cloud-run-source-deploy/task-agents-backend
+    → Cloud Run pulls & rolls out
+
+Cost: essentially $0 at current usage (well within free tiers).
+  - Artifact Registry: 615 MB total across 2 repos (free tier 0.5 GB)
+  - Cloud Build: ~1.5 min/deploy (free 120 min/day)
+  - Cloud Run: well under free tier envelope
+  - Cleanup candidate: stale cloud-run-source-deploy repo in us-central1
+    (467 MB, from 04-21 first attempt)
+
+Service account state
+---------------------
+gcp-service@strategic-crow-341805.iam.gserviceaccount.com
+  - roles/editor
+  - roles/recommender.billingAccountCudAdmin
+  - roles/run.admin                             ← added today
+
+Over-permissioned (roles/editor is a blunt tool). Future hardening: replace
+editor with the 5 specific roles from 20260424_deploy_backend.txt:
+  run.admin, iam.serviceAccountUser, cloudbuild.builds.editor,
+  artifactregistry.admin (or .writer), storage.admin
+Not urgent.
+
+Remaining blockers / known issues
+---------------------------------
+A. Gmail tools broken in Cloud Run  ← NEXT UP
+     backend/tools/gmail_auth.py hardcodes Path("/cli/gmail").
+     That path does not exist in the Cloud Run container; credentials.json
+     and token.json are outside the backend build context so they never
+     make it into the image.
+     Options:
+       a) Copy creds into backend/tools/, change DIR to
+          Path(__file__).parent. Simplest, secrets baked into image.
+       b) Move creds to GCP Secret Manager. Right long-term answer.
+       c) Continue skipping Gmail calls in Cloud Run (current state).
+     Locally: Gmail works once re-authed via cli/gmail/auth.py.
+
+B. Gmail OAuth consent in "Testing" mode → refresh tokens expire every 7 days.
+     Fix for ytlailabs.com Workspace accounts: User Type = Internal.
+     Fix for gmail.com (current owner: hengweyseing53@gmail.com): Publish
+     the app. Gmail scopes require Google verification (~1–4 weeks).
+     Until fixed, re-auth weekly in dev.
+
+C. Frontend still points at localhost backend
+     docker-compose.yml:47 → VITE_API_URL=http://localhost:8890
+     Either flip to the Cloud Run URL and rebuild web, or deploy frontend
+     to Cloud Run / Firebase Hosting too.
+
+D. No auth layer on the public backend
+     Anyone with the URL can POST /api/chat and burn Anthropic tokens.
+     Short term: current setup is fine for dev.
+     Before team rollout: add Identity-Aware Proxy (IAP) — ~45 min.
+       Users sign in with Google, IAP passes verified
+       X-Goog-Authenticated-User-Email to the backend.
+
+E. Nice-to-have hygiene
+     - backend/.dockerignore (exclude __pycache__, *.pyc, tests, etc.)
+     - Trim backend/Dockerfile apt: drop git, ripgrep
+     - Cloud Run retention policy on Artifact Registry
+         keep 3 newest images, delete >7d old
+     - Delete stale us-central1 repo
+
+Already verified (still holds from 04-24)
+-----------------------------------------
+- psql 17 client installed in cloud container
+- Neon connect.sh works end-to-end
+- .env.example mounted into cloud container for passthrough discovery
+- PORT binding honors Cloud Run $PORT
+- Region defaults (asia-southeast1 / aws-ap-southeast-1) applied
+
+Deploy / test cheatsheet
+------------------------
+  # One-time bootstrap (already done today):
+  docker compose exec -it task_agents_cloud gcloud auth login --no-launch-browser
+  docker compose exec -it task_agents_cloud bash /workspace/cloud/setup/1_grant_gcloud_service_acc_permission.sh
+
+  # Deploy:
+  docker compose exec -it task_agents_cloud bash cloudrun/deploy_backend.sh
+
+  # Smoke test:
+  docker compose exec -it task_agents_cloud bash cloudrun/healthcheck_backend.sh
