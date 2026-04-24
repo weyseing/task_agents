@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 from tools import get_tools, execute_tool
 
-MODEL = os.getenv("LITELLM_MODEL", "ollama_chat/gemma4:e4b")
+MODEL = os.getenv("LITELLM_MODEL", "anthropic/claude-haiku-4-5")
 MAX_ITERATIONS = 10
 
 
@@ -31,7 +31,6 @@ async def run_agent(
     and for persisting the final state to the database.
     """
     tools = get_tools()
-    api_base = os.getenv("OLLAMA_API_BASE") if "ollama" in MODEL else None
 
     kwargs = dict(
         model=MODEL,
@@ -39,8 +38,6 @@ async def run_agent(
         tools=tools,
         stream=True,
     )
-    if api_base:
-        kwargs["api_base"] = api_base
 
     for _ in range(MAX_ITERATIONS):
         response = await litellm.acompletion(**kwargs)

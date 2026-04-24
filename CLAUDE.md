@@ -9,7 +9,7 @@ A company-internal AI assistant with a custom web UI. Provides an agentic tool-c
 - **Frontend**: React + Vite (chat UI with streaming, tool call widgets)
 - **Backend**: Python + FastAPI (SSE streaming to frontend)
 - **Agent**: LiteLLM + manual tool-calling loop (`backend/agent.py`)
-- **LLM**: LiteLLM provider abstraction (supports Ollama, Claude, OpenAI, Gemini, etc.)
+- **LLM**: LiteLLM → Anthropic Claude (Haiku 4.5 fast, Sonnet 4.6 deep)
 - **Tools**: Gmail Read/Search, Gmail Send (extensible registry in `backend/tools/`)
 
 ## Project Structure
@@ -31,8 +31,7 @@ task_agents/
 │   └── index.html
 ├── cli/                  # Standalone CLI tools
 │   ├── gmail/            # Gmail OAuth + read/send scripts
-│   ├── database/         # DB management scripts
-│   └── ollama/           # Model management scripts
+│   └── database/         # DB management scripts
 └── CLAUDE.md
 ```
 
