@@ -52,28 +52,25 @@ if [[ -z "$PROJECT" ]]; then
   exit 1
 fi
 
-if [[ -z "${DATABASE_URL_PROD:-}" ]]; then
-  echo "error: DATABASE_URL_PROD env var required (Neon connection string)" >&2
-  echo "       run neon/create_project.sh and paste the output into .env" >&2
-  exit 1
-fi
-
 # Build the env-var payload for Cloud Run.
-# Source of truth: every KEY declared in .env.example is treated as a runtime
-# var and passed through (if set in the container env), except deploy-only
-# keys in DENYLIST. Adding a new backend env var is a one-liner in .env.example.
+# Keys come from .env.example (schema/allowlist). Values come from .env.prod.
+# Deploy-only keys in DENYLIST are skipped even if set in .env.prod.
 ENV_EXAMPLE="/workspace/.env.example"
+ENV_PROD="/workspace/.env.prod"
 DENYLIST=(
   GCP_PROJECT_ID
   GCP_REGION
   GOOGLE_CREDENTIALS_JSON
   NEON_API_KEY
   NEON_ORG_ID
-  DATABASE_URL_PROD   # renamed to DATABASE_URL below
 )
 
 if [[ ! -f "$ENV_EXAMPLE" ]]; then
   echo "error: $ENV_EXAMPLE not found (is it mounted in docker-compose?)" >&2
+  exit 1
+fi
+if [[ ! -f "$ENV_PROD" ]]; then
+  echo "error: $ENV_PROD not found (is it mounted in docker-compose?)" >&2
   exit 1
 fi
 
@@ -85,11 +82,27 @@ is_denied() {
   return 1
 }
 
-ENV_PAIRS=("DATABASE_URL=$DATABASE_URL_PROD")
-INJECTED=("DATABASE_URL")
+# Parse .env.prod into an associative array (split on first '=' only).
+declare -A PROD_VALS
+while IFS= read -r line || [[ -n "$line" ]]; do
+  [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+  [[ "$line" != *=* ]] && continue
+  key="${line%%=*}"
+  val="${line#*=}"
+  PROD_VALS["$key"]="$val"
+done < "$ENV_PROD"
+
+if [[ -z "${PROD_VALS[DATABASE_URL]:-}" ]]; then
+  echo "error: DATABASE_URL not set in .env.prod (Neon connection string)" >&2
+  echo "       run neon/create_project.sh and paste the output into .env.prod" >&2
+  exit 1
+fi
+
+ENV_PAIRS=()
+INJECTED=()
 while IFS= read -r key; do
   is_denied "$key" && continue
-  val="${!key:-}"
+  val="${PROD_VALS[$key]:-}"
   [[ -z "$val" ]] && continue
   ENV_PAIRS+=("$key=$val")
   INJECTED+=("$key")
