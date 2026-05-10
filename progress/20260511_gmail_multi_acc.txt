@@ -1,0 +1,56 @@
+Gmail Multi-Account — Next Steps
+================================
+
+Goal: per-user Gmail OAuth via the web UI, tokens stored in Postgres.
+Replaces the single-account /cli/gmail/{credentials,token}.json setup.
+
+GCP setup (Console, do once)
+----------------------------
+1. OAuth consent screen → publish (External, unverified).
+   - Same warning UX as Testing, but tokens don't expire weekly.
+   - 100-user lifetime cap on grants is fine for internal team.
+2. Credentials → Create OAuth client → Web application:
+   Authorized redirect URIs:
+     http://localhost:8890/api/gmail/oauth/callback
+     https://task-agents-backend-868440172593.asia-southeast1.run.app/api/gmail/oauth/callback
+   Save client_id + client_secret.
+3. Add to .env.example, .env.local, .env.prod:
+     GMAIL_OAUTH_CLIENT_ID=
+     GMAIL_OAUTH_CLIENT_SECRET=
+
+Backend
+-------
+4. New table:
+     gmail_credentials(user_id, email, token_json, created_at, updated_at)
+   PK on user_id (one Gmail per user for now; multi-account per user later).
+5. Endpoints:
+     GET  /api/gmail/oauth/start     → redirect to Google auth URL
+     GET  /api/gmail/oauth/callback  → exchange code, save token, close popup
+     GET  /api/gmail/status          → which Gmail (if any) is connected
+     POST /api/gmail/disconnect      → delete row
+6. Rewrite backend/tools/gmail_auth.py:
+   - Drop /cli/gmail path + sys.exit(1).
+   - get_gmail_service(user_id) loads token_json from DB.
+   - On refresh, persist new token_json back to DB.
+   - Raise instead of sys.exit so a missing token returns a clean tool error
+     instead of crashing the FastAPI process (currently kills the container).
+7. Thread user_id from chat request → agent → tool calls.
+
+Frontend
+--------
+8. "Connect Gmail" button (settings or sidebar):
+   - Opens /api/gmail/oauth/start in popup.
+   - Polls /api/gmail/status until connected, then closes popup.
+9. Show connected email + Disconnect.
+
+Defer
+-----
+- User accounts / sign-in (currently no auth in app). For now key by a
+  browser session id or hardcoded single user; wire real user_id when
+  auth lands.
+- GCP Secret Manager for client_secret (env var is fine for now).
+
+Blockers cleared by this work
+-----------------------------
+- Progress doc 20260424 #5: /cli/gmail hardcoded path → resolved (DB).
+- Cloud Run crash loop on Gmail tool calls → resolved (raise vs sys.exit).
