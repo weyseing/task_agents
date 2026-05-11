@@ -18,6 +18,7 @@ MAX_ITERATIONS = 10
 
 async def run_agent(
     messages: list[dict],
+    user_id: str,
 ) -> AsyncGenerator[dict, None]:
     """
     Run the agent loop, yielding SSE event dicts.
@@ -143,7 +144,7 @@ async def run_agent(
                 args = {}
 
             yield {"tool_call": {"id": tc["id"], "name": name, "args": args}}
-            result = await execute_tool(name, args)
+            result = await execute_tool(name, args, user_id=user_id)
             yield {"tool_result": {"id": tc["id"], "name": name, "data": result}}
 
             # Feed result back into LLM context

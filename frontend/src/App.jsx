@@ -3,9 +3,8 @@ import Sidebar from "./components/Sidebar";
 import ChatHome from "./components/ChatHome";
 import ChatMessages from "./components/ChatMessages";
 import ChatInput from "./components/ChatInput";
+import { apiFetch } from "./api";
 import "./App.css";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 export default function App() {
   const [messages, setMessages] = useState([]);
@@ -20,7 +19,7 @@ export default function App() {
 
   const fetchConversations = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/conversations`);
+      const res = await apiFetch(`/api/conversations`);
       const data = await res.json();
       setConversations(data);
     } catch {}
@@ -32,7 +31,7 @@ export default function App() {
 
   const loadConversation = async (id) => {
     try {
-      const res = await fetch(`${API_URL}/api/conversations/${id}`);
+      const res = await apiFetch(`/api/conversations/${id}`);
       const data = await res.json();
       setMessages(
         data.map((msg) => ({
@@ -53,9 +52,8 @@ export default function App() {
 
   const renameConversation = async (id, title) => {
     try {
-      await fetch(`${API_URL}/api/conversations/${id}`, {
+      await apiFetch(`/api/conversations/${id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title }),
       });
       setConversations((prev) =>
@@ -66,7 +64,7 @@ export default function App() {
 
   const deleteConversation = async (id) => {
     try {
-      await fetch(`${API_URL}/api/conversations/${id}`, { method: "DELETE" });
+      await apiFetch(`/api/conversations/${id}`, { method: "DELETE" });
       setConversations((prev) => prev.filter((c) => c.id !== id));
       if (conversationId === id) {
         handleNewChat();
@@ -94,9 +92,8 @@ export default function App() {
     }, 100);
 
     try {
-      const res = await fetch(`${API_URL}/api/chat`, {
+      const res = await apiFetch(`/api/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversation_id: conversationId,
           content,

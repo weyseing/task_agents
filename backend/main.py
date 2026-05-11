@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
 from agent import run_agent
+from auth import current_user_id
 from db import (
     init_db,
     close_db,
@@ -18,6 +19,7 @@ from db import (
     update_conversation_title,
     delete_conversation,
 )
+from gmail_oauth import router as gmail_oauth_router
 
 
 @asynccontextmanager
@@ -35,6 +37,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(gmail_oauth_router)
 
 
 def get_system_prompt() -> str:
@@ -149,6 +153,7 @@ async def chat(request: Request):
     body = await request.json()
     conversation_id = body.get("conversation_id")
     user_content = body.get("content", "")
+    user_id = current_user_id(request)
 
     # Create new conversation if needed
     is_new = conversation_id is None
@@ -171,7 +176,7 @@ async def chat(request: Request):
         response_content = ""
         tool_calls_data: list[dict] = []
 
-        async for event in run_agent(messages):
+        async for event in run_agent(messages, user_id=user_id):
             if "content" in event:
                 response_content += event["content"]
 

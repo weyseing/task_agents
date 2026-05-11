@@ -1,54 +1,55 @@
 """Gmail OAuth2 credential loading for the backend.
 
-The interactive OAuth flow lives in cli/gmail/auth.py.
-This module only loads / refreshes existing tokens for tool calls.
+Tokens are stored per-user in the `gmail_credentials` table.
+The interactive OAuth flow itself lives in backend/main.py
+(/api/gmail/oauth/start, /api/gmail/oauth/callback).
 """
 
-from pathlib import Path
+import json
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-DIR = Path("/cli/gmail")
-CREDENTIALS_FILE = DIR / "credentials.json"
-TOKEN_FILE = DIR / "token.json"
+from db import get_gmail_creds, upsert_gmail_creds
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "openid",
 ]
 
 
 class GmailNotConnectedError(Exception):
-    """Raised when no usable Gmail credentials are available for this request."""
+    """Raised when no usable Gmail credentials are available for this user."""
 
 
-def get_credentials() -> Credentials:
-    """Get valid credentials, running OAuth flow if needed."""
-    if not CREDENTIALS_FILE.exists():
+async def get_gmail_service(user_id: str):
+    """Build a Gmail service for the given user.
+
+    Loads token_json from the DB. If the access token is expired and a
+    refresh_token is available, refreshes it and persists the new token_json
+    back to the DB. Raises GmailNotConnectedError if no creds are stored or
+    the stored creds can't be made valid.
+    """
+    row = await get_gmail_creds(user_id)
+    if not row:
         raise GmailNotConnectedError(
-            f"Gmail credentials not found at {CREDENTIALS_FILE}. "
-            "Connect a Gmail account first."
+            "Gmail is not connected for this user. Click 'Connect Gmail' to authorize."
         )
 
-    creds = None
-    if TOKEN_FILE.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
+    creds = Credentials.from_authorized_user_info(row["token_json"], SCOPES)
 
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
+    if not creds.valid:
+        if creds.expired and creds.refresh_token:
             creds.refresh(Request())
+            await upsert_gmail_creds(
+                user_id, row["email"], json.loads(creds.to_json())
+            )
         else:
             raise GmailNotConnectedError(
-                "No valid Gmail token. Connect a Gmail account first."
+                "Stored Gmail token is invalid. Please reconnect Gmail."
             )
-        TOKEN_FILE.write_text(creds.to_json())
 
-    return creds
-
-
-def get_gmail_service():
-    """Build and return an authenticated Gmail API service."""
-    creds = get_credentials()
     return build("gmail", "v1", credentials=creds)

@@ -1,0 +1,69 @@
+.gmail-connect {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 4px 4px;
+  margin-top: 8px;
+  border-top: 1px solid #eee;
+  flex-shrink: 0;
+}
+
+.gmail-connect-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #555;
+  padding: 0 8px;
+  min-width: 0;
+}
+
+.gmail-connect-icon {
+  color: #10b981;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.gmail-connect-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.gmail-connect-btn {
+  appearance: none;
+  border: 1px solid #ddd;
+  background: #fff;
+  color: #333;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.gmail-connect-btn:hover:not(:disabled) {
+  background: #f0f0f0;
+}
+
+.gmail-connect-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.gmail-connect-btn.secondary {
+  background: transparent;
+  border-color: transparent;
+  color: #888;
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.gmail-connect-btn.secondary:hover:not(:disabled) {
+  color: #333;
+  background: rgba(0, 0, 0, 0.04);
+}

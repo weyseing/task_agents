@@ -32,6 +32,13 @@ async def init_db():
                 tool_calls JSONB,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             );
+            CREATE TABLE IF NOT EXISTS gmail_credentials (
+                user_id TEXT PRIMARY KEY,
+                email TEXT NOT NULL,
+                token_json JSONB NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
             CREATE INDEX IF NOT EXISTS idx_messages_conversation
                 ON messages(conversation_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_conversations_updated
@@ -132,4 +139,47 @@ async def delete_conversation(conversation_id: str):
         await conn.execute(
             "DELETE FROM conversations WHERE id = $1",
             uuid.UUID(conversation_id),
+        )
+
+
+# --- Gmail credentials ---
+
+
+async def get_gmail_creds(user_id: str) -> dict | None:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT email, token_json FROM gmail_credentials WHERE user_id = $1",
+            user_id,
+        )
+    if not row:
+        return None
+    tj = row["token_json"]
+    return {
+        "email": row["email"],
+        "token_json": json.loads(tj) if isinstance(tj, str) else tj,
+    }
+
+
+async def upsert_gmail_creds(user_id: str, email: str, token_json: dict):
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO gmail_credentials (user_id, email, token_json)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (user_id) DO UPDATE
+              SET email = EXCLUDED.email,
+                  token_json = EXCLUDED.token_json,
+                  updated_at = now()
+            """,
+            user_id,
+            email,
+            json.dumps(token_json),
+        )
+
+
+async def delete_gmail_creds(user_id: str):
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM gmail_credentials WHERE user_id = $1",
+            user_id,
         )

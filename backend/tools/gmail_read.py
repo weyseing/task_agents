@@ -5,7 +5,7 @@ import base64
 import html
 import re
 
-from .gmail_auth import get_gmail_service
+from .gmail_auth import get_gmail_service, GmailNotConnectedError
 
 SCHEMA = {
     "name": "gmail_read",
@@ -72,10 +72,12 @@ def _decode_body(payload: dict) -> str:
 
 
 def _read_sync(
-    query: str = "in:inbox", max_results: int = 5, message_id: str | None = None, days_ago: int | None = None,
+    service,
+    query: str = "in:inbox",
+    max_results: int = 5,
+    message_id: str | None = None,
+    days_ago: int | None = None,
 ) -> dict:
-    service = get_gmail_service()
-
     # Inject date filter from days_ago using Gmail's native relative syntax
     if days_ago is not None:
         query = f"{query} newer_than:{days_ago}d".strip()
@@ -142,9 +144,21 @@ def _read_sync(
 
 
 async def handler(
-    query: str = "in:inbox", max_results: int = 5, message_id: str | None = None, days_ago: int | None = None,
+    user_id: str,
+    query: str = "in:inbox",
+    max_results: int = 5,
+    message_id: str | None = None,
+    days_ago: int | None = None,
 ) -> dict:
     try:
-        return await asyncio.to_thread(_read_sync, query, max_results, message_id, days_ago)
+        service = await get_gmail_service(user_id)
+    except GmailNotConnectedError as e:
+        return {"error": str(e), "not_connected": True}
+    except Exception as e:
+        return {"error": str(e)}
+    try:
+        return await asyncio.to_thread(
+            _read_sync, service, query, max_results, message_id, days_ago
+        )
     except Exception as e:
         return {"error": str(e)}

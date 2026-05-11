@@ -4,7 +4,7 @@ import asyncio
 import base64
 from email.mime.text import MIMEText
 
-from .gmail_auth import get_gmail_service
+from .gmail_auth import get_gmail_service, GmailNotConnectedError
 
 SCHEMA = {
     "name": "gmail_send",
@@ -31,6 +31,7 @@ SCHEMA = {
 
 
 def _send_sync(
+    service,
     to: str,
     subject: str,
     body: str,
@@ -38,8 +39,6 @@ def _send_sync(
     bcc: str = "",
     thread_id: str | None = None,
 ) -> dict:
-    service = get_gmail_service()
-
     msg = MIMEText(body)
     msg["to"] = to
     msg["subject"] = subject
@@ -64,6 +63,7 @@ def _send_sync(
 
 
 async def handler(
+    user_id: str,
     to: str,
     subject: str,
     body: str,
@@ -72,8 +72,14 @@ async def handler(
     thread_id: str | None = None,
 ) -> dict:
     try:
+        service = await get_gmail_service(user_id)
+    except GmailNotConnectedError as e:
+        return {"error": str(e), "not_connected": True}
+    except Exception as e:
+        return {"error": str(e)}
+    try:
         return await asyncio.to_thread(
-            _send_sync, to, subject, body, cc, bcc, thread_id
+            _send_sync, service, to, subject, body, cc, bcc, thread_id
         )
     except Exception as e:
         return {"error": str(e)}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import GmailConnect from "./GmailConnect";
 import "./Sidebar.css";
 
 function groupConversations(conversations) {
@@ -242,6 +243,8 @@ export default function Sidebar({ conversations, activeId, collapsed, onToggleCo
           </div>
         ))}
       </div>
+
+      <GmailConnect />
     </aside>
   );
 }
