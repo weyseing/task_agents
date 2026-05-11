@@ -1,0 +1,78 @@
+Deploy Frontend — Cloudflare Pages
+==================================
+
+Target: Cloudflare Pages (free tier — unlimited bandwidth, 500 builds/mo).
+Decided in 20260420_cloud_costing.txt. Backend already on Cloud Run.
+
+Why Pages, not Cloud Run
+------------------------
+- Frontend is static (Vite → dist/). Nothing to keep warm.
+- Pages: free unlimited egress + global CDN. Cloud Run: 1 GB free egress
+  then $0.12/GB, single-region.
+- Existing frontend/nginx.conf is unused leftover; current Dockerfile only
+  runs Vite dev server.
+
+Cloudflare setup (do once)
+--------------------------
+1. Sign up at https://dash.cloudflare.com (free).
+2. Account → grab Account ID from sidebar (or any zone URL).
+3. My Profile → API Tokens → Create Token → use "Edit Cloudflare Pages"
+   template. Token needs: Account.Cloudflare Pages = Edit.
+4. (Optional) Pages → Create project → "Direct Upload" → name it
+   `task-agents-web`. Skips the auto-create on first deploy.
+5. Add to .env.example, .env.local, .env.prod:
+     CLOUDFLARE_API_TOKEN=
+     CLOUDFLARE_ACCOUNT_ID=
+     CLOUDFLARE_PAGES_PROJECT=task-agents-web
+
+Tooling
+-------
+6. Add wrangler to the cloud container.
+   cloud/Dockerfile: `npm install -g wrangler` next to neonctl install.
+
+Build-time config
+-----------------
+7. Production bundle needs VITE_API_URL pointing at the Cloud Run URL.
+   Read from .env.prod (single source of truth — same URL used by GCP
+   OAuth redirect). Hardcoding is brittle if the Cloud Run URL changes.
+8. Verify frontend/.env handling — Vite picks up VITE_* at build time,
+   not runtime. So this MUST be set before `npm run build`.
+
+Script
+------
+9. New cloud/cli/cloudrun/deploy_frontend.sh (matches deploy_backend.sh
+   style; --env switch already standard in cloud/cli/database).
+   Steps:
+     a. Resolve VITE_API_URL: extract from .env.prod or accept --api-url.
+     b. cd frontend && npm ci && VITE_API_URL=$URL npm run build
+     c. wrangler pages deploy frontend/dist
+          --project-name "$CLOUDFLARE_PAGES_PROJECT"
+          --branch main
+     d. Echo the deployed URL.
+
+CORS
+----
+10. Backend currently allow_origins=["*"] (backend/main.py:33-37). Once
+    Pages URL is stable, tighten to:
+      allow_origins=[
+        "https://task-agents-web.pages.dev",
+        "http://localhost:8891",
+      ]
+    Skip until the deploy lands and we know the actual Pages subdomain.
+
+OAuth callback impact
+---------------------
+11. Frontend doesn't appear in any OAuth redirect URI — those point at
+    the backend's /api/gmail/oauth/callback. Pages deploy is independent
+    of the OAuth web client.
+
+Custom domain (deferred)
+------------------------
+- Pages assigns task-agents-web.pages.dev by default. Custom domain (e.g.
+  app.example.com) requires the domain in Cloudflare DNS — out of scope
+  for first deploy.
+
+Blockers cleared by this work
+-----------------------------
+- Frontend reaches users without paying Cloud Run egress.
+- Removes the dev-only Vite container as the only way to access the app.

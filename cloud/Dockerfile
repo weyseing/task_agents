@@ -20,6 +20,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /workspace
 
+# terminal style
+RUN echo 'export PS1="\[\033[32m\]\u@\h:\[\033[38;2;30;144;255m\]\w\[\033[00m\]\$ "' >> /root/.bashrc \
+ && echo 'echo -e "\033[6 q"' >> /root/.bashrc
+
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
