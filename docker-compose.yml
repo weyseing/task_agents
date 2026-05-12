@@ -42,8 +42,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8891:3000"
-    environment:
-      - VITE_API_URL=http://localhost:8890
+    env_file:
+      - .env.local
     volumes:
       - ./frontend/src:/app/src
       - ./frontend/public:/app/public
