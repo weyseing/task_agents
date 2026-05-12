@@ -25,5 +25,8 @@ __pycache__/
 # Ollama
 .ollama/
 
+# Wrangler (Cloudflare CLI cache)
+.wrangler/
+
 # Workspace
 workspace/
