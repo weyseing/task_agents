@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
          > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends postgresql-client-17 \
-    && npm install -g neonctl \
+    && npm install -g neonctl wrangler \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
