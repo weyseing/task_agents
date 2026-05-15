@@ -1,20 +1,64 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Lumen app icon — glass-over-dark squircle with backplate.
+  Based on the "Lumen Mobile Icon" design (1024 art board).
+  Source for favicon, apple-touch-icon, and icon-{192,512}.png.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"
+     viewBox="0 0 1024 1024" shape-rendering="geometricPrecision">
   <defs>
-    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.85"/>
-      <stop offset="45%"  stop-color="#FFFFFF" stop-opacity="0.45"/>
-      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.22"/>
+    <linearGradient id="lm-plate" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F1F4F9"/>
+      <stop offset="100%" stop-color="#DDE3EC"/>
     </linearGradient>
-    <clipPath id="frontClip">
-      <rect x="38" y="8" width="54" height="54" rx="12"/>
+    <linearGradient id="lm-dark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#162038"/>
+      <stop offset="100%" stop-color="#0B1426"/>
+    </linearGradient>
+    <linearGradient id="lm-glass" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.92"/>
+      <stop offset="55%" stop-color="#FFFFFF" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.18"/>
+    </linearGradient>
+    <radialGradient id="lm-sheen" cx="0.5" cy="0" r="0.85">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.9"/>
+      <stop offset="60%" stop-color="#FFFFFF" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="lm-glass-clip">
+      <rect x="384" y="80" width="560" height="560" rx="124"/>
+    </clipPath>
+    <clipPath id="lm-plate-clip">
+      <rect x="0" y="0" width="1024" height="1024" rx="228"/>
     </clipPath>
   </defs>
-  <rect x="8" y="32" width="54" height="54" rx="12" fill="#0F172A"/>
-  <rect x="38" y="8" width="54" height="54" rx="12" fill="url(#glass)" stroke="rgba(15,23,42,0.22)" stroke-width="1"/>
-  <g clip-path="url(#frontClip)">
-    <ellipse cx="62" cy="14" rx="32" ry="11" fill="rgba(255,255,255,0.55)"/>
-    <rect x="46" y="14" width="22" height="1.6" rx="0.8" fill="rgba(255,255,255,0.95)"/>
+
+  <!-- Backplate (iOS-style rounded square) -->
+  <g clip-path="url(#lm-plate-clip)">
+    <rect x="0" y="0" width="1024" height="1024" fill="url(#lm-plate)"/>
+    <ellipse cx="240" cy="120" rx="640" ry="220" fill="#FFFFFF" opacity="0.45"/>
+    <rect x="1" y="1" width="1022" height="1022" rx="227"
+          fill="none" stroke="rgba(15,23,42,0.06)" stroke-width="2"/>
   </g>
-  <rect x="38.6" y="8.6" width="52.8" height="52.8" rx="11.5"
-        fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="0.8"/>
+
+  <!-- Dark tile (back) -->
+  <g>
+    <rect x="92" y="392" width="560" height="568" rx="124" fill="#0B1426" opacity="0.10"/>
+    <rect x="80" y="384" width="560" height="560" rx="124" fill="url(#lm-dark)"/>
+    <rect x="80" y="384" width="560" height="560" rx="124"
+          fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="2"/>
+  </g>
+
+  <!-- Glass tile (front) -->
+  <g>
+    <rect x="392" y="96" width="560" height="568" rx="124" fill="#0B1426" opacity="0.18"/>
+    <rect x="384" y="80" width="560" height="560" rx="124"
+          fill="url(#lm-glass)" stroke="rgba(15,23,42,0.18)" stroke-width="2"/>
+    <g clip-path="url(#lm-glass-clip)">
+      <rect x="384" y="80" width="560" height="280" fill="url(#lm-sheen)"/>
+      <rect x="618" y="170" width="220" height="16" rx="8" fill="#FFFFFF" opacity="0.95"/>
+    </g>
+    <rect x="390" y="86" width="548" height="548" rx="120"
+          fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="2"/>
+  </g>
 </svg>

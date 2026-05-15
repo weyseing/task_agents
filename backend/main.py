@@ -121,6 +121,8 @@ async def list_conversations(user_id: str = Depends(current_user_id)):
 async def get_conversation(
     conversation_id: str, user_id: str = Depends(current_user_id)
 ):
+    if not await conversation_belongs_to(conversation_id, user_id):
+        raise HTTPException(status_code=404, detail="Conversation not found")
     messages = await get_conversation_messages(conversation_id, user_id)
     return JSONResponse(messages)
 
@@ -135,6 +137,8 @@ async def rename_conversation(
     title = body.get("title", "").strip()
     if not title:
         return JSONResponse({"error": "title required"}, status_code=400)
+    if not await conversation_belongs_to(conversation_id, user_id):
+        raise HTTPException(status_code=404, detail="Conversation not found")
     await update_conversation_title(conversation_id, user_id, title)
     return JSONResponse({"ok": True})
 
@@ -143,6 +147,8 @@ async def rename_conversation(
 async def remove_conversation(
     conversation_id: str, user_id: str = Depends(current_user_id)
 ):
+    if not await conversation_belongs_to(conversation_id, user_id):
+        raise HTTPException(status_code=404, detail="Conversation not found")
     await delete_conversation(conversation_id, user_id)
     return JSONResponse({"ok": True})
 
