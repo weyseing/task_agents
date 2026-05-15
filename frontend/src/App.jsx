@@ -8,6 +8,19 @@ import Topbar from "./components/Topbar";
 import { apiFetch } from "./api";
 import "./App.css";
 
+// URL helpers: chat URL pattern is `/c/<conversation_id>`; `/` means new chat.
+const CONV_URL_RE = /^\/c\/([a-f0-9-]+)\/?$/i;
+const getConvIdFromUrl = () => {
+  const m = window.location.pathname.match(CONV_URL_RE);
+  return m ? m[1] : null;
+};
+const pushConvUrl = (id) => {
+  const target = id ? `/c/${id}` : "/";
+  if (window.location.pathname !== target) {
+    window.history.pushState({ conversationId: id || null }, "", target);
+  }
+};
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -48,9 +61,14 @@ export default function App() {
     if (user) fetchConversations();
   }, [user, fetchConversations]);
 
-  const loadConversation = async (id) => {
+  const loadConversation = useCallback(async (id, { pushUrl = true } = {}) => {
     try {
       const res = await apiFetch(`/api/conversations/${id}`);
+      if (!res.ok) {
+        // Bad id (404/403): always fix the URL, even on initial load.
+        pushConvUrl(null);
+        return;
+      }
       const data = await res.json();
       setMessages(
         data.map((msg) => ({
@@ -66,8 +84,9 @@ export default function App() {
       );
       setConversationId(id);
       setChatStarted(true);
+      if (pushUrl) pushConvUrl(id);
     } catch {}
-  };
+  }, []);
 
   const renameConversation = async (id, title) => {
     try {
@@ -171,6 +190,7 @@ export default function App() {
             if (parsed.conversation_id) {
               setConversationId(parsed.conversation_id);
               if (parsed.is_new) {
+                pushConvUrl(parsed.conversation_id);
                 fetchConversations();
               }
               continue;
@@ -223,12 +243,33 @@ export default function App() {
     }
   };
 
-  const handleNewChat = () => {
+  const handleNewChat = ({ pushUrl = true } = {}) => {
     setMessages([]);
     setChatStarted(false);
     setConversationId(null);
     setInput("");
+    if (pushUrl) pushConvUrl(null);
   };
+
+  // On first auth, if URL points at /c/<id>, load that conversation.
+  useEffect(() => {
+    if (!user) return;
+    const id = getConvIdFromUrl();
+    if (id) loadConversation(id, { pushUrl: false });
+  }, [user, loadConversation]);
+
+  // Browser back/forward — sync state to the URL we just landed on.
+  useEffect(() => {
+    const onPop = () => {
+      const id = getConvIdFromUrl();
+      if (id) loadConversation(id, { pushUrl: false });
+      else handleNewChat({ pushUrl: false });
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+    // handleNewChat reads only setters (stable) — safe to omit from deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadConversation]);
 
   const handleLogout = async () => {
     try {

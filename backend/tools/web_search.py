@@ -1,151 +1,139 @@
-"""Web search tool using DuckDuckGo HTML search."""
+"""Web search tool using the Tavily API.
+
+Replaces the previous DuckDuckGo HTML + Bing Images scraping which had
+become unreliable (Bing API retired Aug 2025, DDG aggressive rate-limiting,
+image relevance was effectively random).
+
+Tavily returns text results AND relevant images in a single call, which is
+cheaper (one credit instead of two scrapes) and faster than the old design.
+"""
 
 import asyncio
-import json
-import re
-from html import unescape
-from html.parser import HTMLParser
-from urllib.parse import unquote, urlparse, parse_qs
+import os
+from urllib.parse import urlparse
 
 import httpx
 
 SCHEMA = {
     "name": "web_search",
     "description": (
-        "Search the web for information or images. "
-        "Use this when the user asks about topics you don't know, needs current/real-time information, "
-        "or asks for images of something. "
-        "When the user asks about a person, place, or thing, call this tool TWICE: "
-        "once with search_type 'text' for info, and once with search_type 'images' for photos."
+        "Search the web for information and/or images. Returns both web text "
+        "results and related images in a SINGLE call — do not call this tool twice. "
+        "Use this when the user asks about topics you don't know, needs current "
+        "information, or asks for images of something."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "query": {
-                "type": "string",
-                "description": "Search query",
-            },
+            "query": {"type": "string", "description": "Search query"},
             "search_type": {
                 "type": "string",
                 "enum": ["text", "images"],
-                "description": "Type of search: 'text' for info (default), 'images' for image search",
+                "description": (
+                    "'text' (default) when info is primary; 'images' when the user "
+                    "specifically asked for images. Both kinds are returned either way."
+                ),
             },
             "max_results": {
                 "type": "integer",
-                "description": "Max results to return (default: 5)",
+                "description": "Max results to return (default: 5, max: 10)",
             },
         },
         "required": ["query"],
     },
 }
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html",
-    "Accept-Language": "en-US,en;q=0.9",
-}
+TAVILY_ENDPOINT = "https://api.tavily.com/search"
 
 
-class _DDGResultParser(HTMLParser):
-    """Parse DuckDuckGo HTML search results."""
-
-    def __init__(self):
-        super().__init__()
-        self.results: list[dict] = []
-        self._current: dict = {}
-        self._capture: str | None = None
-
-    def handle_starttag(self, tag, attrs):
-        attrs_d = dict(attrs)
-        cls = attrs_d.get("class", "")
-        if tag == "a" and "result__a" in cls:
-            raw_url = attrs_d.get("href", "")
-            self._current = {"title": "", "url": _extract_url(raw_url), "snippet": ""}
-            self._capture = "title"
-        if tag == "a" and "result__snippet" in cls:
-            self._capture = "snippet"
-
-    def handle_endtag(self, tag):
-        if tag == "a" and self._capture == "title":
-            self._capture = None
-        if tag == "a" and self._capture == "snippet":
-            self._capture = None
-            if self._current.get("title"):
-                self.results.append(self._current)
-            self._current = {}
-
-    def handle_data(self, data):
-        if self._capture and self._current:
-            self._current[self._capture] += data
-
-
-def _extract_url(ddg_url: str) -> str:
-    """Extract the real URL from DuckDuckGo's redirect wrapper."""
-    parsed = urlparse(ddg_url)
-    uddg = parse_qs(parsed.query).get("uddg")
-    if uddg:
-        return unquote(uddg[0])
-    return ddg_url
-
-
-def _search_text(query: str, max_results: int) -> list[dict]:
-    resp = httpx.get(
-        "https://html.duckduckgo.com/html/",
-        params={"q": query},
-        headers=HEADERS,
-        timeout=15,
-        follow_redirects=True,
-    )
-    parser = _DDGResultParser()
-    parser.feed(resp.text)
-    # Filter out DuckDuckGo ad results
-    results = [r for r in parser.results if "duckduckgo.com/y.js" not in r["url"]]
-    return results[:max_results]
-
-
-def _search_images(query: str, max_results: int) -> list[dict]:
-    """Fetch images via Bing Image search HTML scraping."""
+def _hostname(url: str) -> str:
     try:
-        resp = httpx.get(
-            "https://www.bing.com/images/search",
-            params={"q": query, "first": "1"},
-            headers=HEADERS,
-            timeout=15,
-            follow_redirects=True,
-        )
-        # Bing embeds image metadata as JSON in the 'm' attribute of iusc elements
-        matches = re.findall(r'class="iusc".*?m="([^"]+)"', resp.text)
-        results = []
-        for m_raw in matches[:max_results]:
-            data = json.loads(unescape(m_raw))
-            results.append(
-                {
-                    "title": data.get("t", ""),
-                    "image": data.get("murl", ""),
-                    "thumbnail": data.get("turl", ""),
-                    "url": data.get("purl", ""),
-                    "source": urlparse(data.get("purl", "")).netloc,
-                }
-            )
-        return results
+        return urlparse(url).netloc.replace("www.", "")
     except Exception:
-        return []
+        return ""
 
 
-def _search_sync(
-    query: str, search_type: str = "text", max_results: int = 5
-) -> dict:
-    # Always fetch text results
-    text_results = _search_text(query, max_results)
-    result: dict = {"type": "text_results", "query": query, "results": text_results}
+def _search_sync(query: str, search_type: str, max_results: int) -> dict:
+    api_key = os.getenv("TAVILY_API_KEY")
+    if not api_key:
+        return {"error": "TAVILY_API_KEY is not configured."}
 
-    # Also fetch images when requested (or always for non-trivial queries)
-    if search_type == "images" or len(query.split()) >= 2:
-        image_results = _search_images(query, max_results)
-        if image_results:
-            result["images"] = image_results
+    n = max(1, min(int(max_results or 5), 10))
+    payload = {
+        "api_key": api_key,
+        "query": query,
+        "search_depth": "basic",  # 1 credit per call
+        "max_results": n,
+        "include_images": True,
+        "include_image_descriptions": True,
+        # Tavily synthesizes a paragraph-level answer across the results —
+        # gives the agent a ready summary to ground its reply against.
+        "include_answer": True,
+    }
 
-    return result
+    try:
+        resp = httpx.post(TAVILY_ENDPOINT, json=payload, timeout=20)
+    except httpx.RequestError as e:
+        return {"error": f"Network error contacting Tavily: {e}"}
+
+    if resp.status_code == 429:
+        return {
+            "error": "Web search quota exceeded for this month. Resets on the 1st.",
+            "quota_exceeded": True,
+        }
+    if resp.status_code == 401:
+        return {"error": "Invalid TAVILY_API_KEY."}
+    if resp.status_code != 200:
+        return {"error": f"Tavily API error {resp.status_code}: {resp.text[:200]}"}
+
+    data = resp.json()
+
+    results = []
+    for r in data.get("results", [])[:n]:
+        item = {
+            "title": r.get("title", "") or "",
+            "url": r.get("url", "") or "",
+            # Bumped from 500 → 1800 chars. Tavily's content is usually a
+            # multi-sentence excerpt; more text means the agent can ground
+            # quotes and follow-up reasoning without a second tool call.
+            "snippet": (r.get("content", "") or "")[:1800],
+        }
+        if (score := r.get("score")) is not None:
+            item["score"] = round(float(score), 3)
+        if pub := r.get("published_date"):
+            item["published_date"] = pub
+        results.append(item)
+
+    images = []
+    for img in data.get("images", [])[:n]:
+        # Tavily returns objects when include_image_descriptions=True,
+        # plain URL strings otherwise. Handle both.
+        if isinstance(img, dict):
+            url = img.get("url", "") or ""
+            desc = img.get("description", "") or ""
+        else:
+            url = str(img)
+            desc = ""
+        if not url:
+            continue
+        images.append(
+            {
+                "title": desc or query,
+                "image": url,
+                "thumbnail": url,
+                "url": url,
+                "source": _hostname(url),
+            }
+        )
+
+    out: dict = {"type": "text_results", "query": query, "results": results}
+    if answer := data.get("answer"):
+        # Tavily's synthesized summary across all results. The agent sees
+        # this directly in the tool result and can ground its reply on it.
+        out["answer"] = answer
+    if images:
+        out["images"] = images
+    return out
 
 
 async def handler(
