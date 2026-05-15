@@ -30,7 +30,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # Load real R2 creds from .env.local (one dir up from backend/).
-load_dotenv(Path(__file__).resolve().parents[2] / ".env.local")
+load_dotenv(Path(__file__).resolve().parents[2] / "envs" / ".env.local")
 
 from storage import R2_BUCKET, _client  # noqa: E402 — requires env above
 

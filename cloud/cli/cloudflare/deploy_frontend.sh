@@ -2,7 +2,7 @@
 # Deploy the frontend (Vite static bundle) to Cloudflare Pages.
 set -euo pipefail
 
-ENV_PROD="/workspace/.env.prod"
+ENV_PROD="/workspace/envs/.env.prod"
 FRONTEND_SRC="/workspace/frontend"
 BUILD_DIR="/tmp/frontend-build"
 

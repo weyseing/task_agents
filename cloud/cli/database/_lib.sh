@@ -4,7 +4,7 @@
 # resolve_psql ENV
 #   Populates the PSQL array with the right psql invocation:
 #     local — talks to the task_agents_db service over the docker network
-#     prod  — reads DATABASE_URL from /workspace/.env.prod
+#     prod  — reads DATABASE_URL from /workspace/envs/.env.prod
 resolve_psql() {
   local env="${1:-local}"
   case "$env" in
@@ -13,7 +13,7 @@ resolve_psql() {
       PSQL=(psql -h task_agents_db -p 5432 -U taskagents -d taskagents)
       ;;
     prod)
-      local f=/workspace/.env.prod
+      local f=/workspace/envs/.env.prod
       if [[ ! -r "$f" ]]; then
         echo "error: $f not readable from this container" >&2
         return 1

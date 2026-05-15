@@ -1,2 +1,2 @@
 # Setup Guide
-- **Copy `.env.example` to `.env.local` & `.env.prod`**
+- **Copy `envs/.env.example` to `envs/.env.local` & `envs/.env.prod`**

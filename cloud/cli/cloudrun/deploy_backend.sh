@@ -55,8 +55,8 @@ fi
 # Build the env-var payload for Cloud Run.
 # Keys come from .env.example (schema/allowlist). Values come from .env.prod.
 # Deploy-only keys in DENYLIST are skipped even if set in .env.prod.
-ENV_EXAMPLE="/workspace/.env.example"
-ENV_PROD="/workspace/.env.prod"
+ENV_EXAMPLE="/workspace/envs/.env.example"
+ENV_PROD="/workspace/envs/.env.prod"
 DENYLIST=(
   GCP_PROJECT_ID
   GCP_REGION
