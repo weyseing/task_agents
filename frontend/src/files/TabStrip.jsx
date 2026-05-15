@@ -13,7 +13,8 @@ export default function TabStrip({ tabs, activeId, dirty, onActivate, onClose })
         paddingLeft: 12,
         gap: 0,
         flexShrink: 0,
-        overflowX: "auto",
+        overflow: "hidden",
+        minWidth: 0,
       }}
     >
       {tabs.map((t) => {
@@ -33,8 +34,9 @@ export default function TabStrip({ tabs, activeId, dirty, onActivate, onClose })
               fontSize: 12.5,
               color: active ? C_INK : C_MUTED,
               fontWeight: active ? 500 : 400,
+              flex: "1 1 0",
+              minWidth: 0,
               maxWidth: 220,
-              minWidth: 110,
               borderRight: `1px solid ${C_LINE_SOFT}`,
             }}
           >

@@ -11,12 +11,17 @@ import {
   saveContent,
   deleteFile,
   fsFind,
-  fsFirstFile,
 } from "./fsData";
 import { C_BG, C_INK, C_PAGE } from "./tokens";
 import "./FilesPage.css";
 
 const EMPTY_TREE = { id: "root", name: "My Files", kind: "folder", children: [] };
+
+// Agent-panel width clamps — narrow enough to tuck, wide enough for real replies.
+const AGENT_MIN = 300;
+const AGENT_MAX = 620;
+const AGENT_DEFAULT = 360;
+const AGENT_WIDTH_KEY = "lumen.agentWidth";
 
 // `/files/<file-id>` — match the pattern used in App.jsx
 const FILE_URL_RE = /^\/files\/([a-f0-9-]+)\/?$/i;
@@ -41,6 +46,43 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
   const [confirm, setConfirm] = useState(null);
   const [mobileSidebar, setMobileSidebar] = useState(false);
   const [mobileAgent, setMobileAgent] = useState(false);
+
+  const [agentWidth, setAgentWidth] = useState(() => {
+    const stored = parseInt(
+      typeof localStorage !== "undefined" ? localStorage.getItem(AGENT_WIDTH_KEY) || "" : "",
+      10,
+    );
+    return Number.isFinite(stored)
+      ? Math.max(AGENT_MIN, Math.min(AGENT_MAX, stored))
+      : AGENT_DEFAULT;
+  });
+  const [resizing, setResizing] = useState(false);
+
+  const startResize = (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = agentWidth;
+    setResizing(true);
+    const onMove = (ev) => {
+      // Dragging LEFT widens — delta is negated.
+      const next = Math.max(
+        AGENT_MIN,
+        Math.min(AGENT_MAX, startW - (ev.clientX - startX)),
+      );
+      setAgentWidth(next);
+    };
+    const onUp = () => {
+      setResizing(false);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  useEffect(() => {
+    localStorage.setItem(AGENT_WIDTH_KEY, String(agentWidth));
+  }, [agentWidth]);
 
   // Capture the URL's file ID at component init, BEFORE any effect runs.
   // The syncUrl effect would otherwise fire first (activeId=null) and wipe
@@ -79,11 +121,9 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
         const urlNode = urlId ? fsFind(tree, urlId) : null;
         if (urlNode && urlNode.kind === "file") {
           await openFile(urlNode);
-        } else {
-          // URL had no id (or id is stale) — fall back to the first file.
-          const first = fsFirstFile(tree);
-          if (first) await openFile(first);
         }
+        // No URL file ID (or it's stale) — leave the editor empty; the user
+        // picks what to open.
       } catch (e) {
         if (!cancelled) setError(e.message);
       } finally {
@@ -230,11 +270,13 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
         width: "100vw",
         overflow: "hidden",
         display: "grid",
-        gridTemplateColumns: "268px 1fr 360px",
+        gridTemplateColumns: `268px 1fr ${agentWidth}px`,
         background: C_PAGE,
         color: C_INK,
         fontFamily: '"Sora", system-ui',
         position: "relative",
+        cursor: resizing ? "col-resize" : "auto",
+        userSelect: resizing ? "none" : "auto",
       }}
     >
       <FilesSidebar
@@ -298,6 +340,8 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
       </div>
       <AgentPanel
         file={activeTab}
+        width={agentWidth}
+        onResizeStart={startResize}
         mobileOpen={mobileAgent}
         onMobileClose={() => setMobileAgent(false)}
         onOpenFullChat={onNavChat}

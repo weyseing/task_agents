@@ -1,5 +1,4 @@
 import { useState } from "react";
-import AgentLogo from "../components/AgentLogo";
 import {
   C_BG,
   C_EASE,
@@ -13,20 +12,61 @@ import {
   C_SURFACE2,
 } from "./tokens";
 
-export default function AgentPanel({ file, mobileOpen, onMobileClose, onOpenFullChat }) {
+
+// Thin invisible hit-zone for resizing the agent panel. Hugs the LEFT edge
+// of the panel; reveals a 1px accent line on hover/drag.
+function ResizeHandle({ onResizeStart }) {
+  const [hot, setHot] = useState(false);
+  return (
+    <div
+      className="files-agent-resize"
+      onMouseDown={(e) => {
+        setHot(true);
+        onResizeStart(e);
+      }}
+      onMouseEnter={() => setHot(true)}
+      onMouseLeave={() => setHot(false)}
+      style={{
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        left: -3,
+        width: 6,
+        cursor: "col-resize",
+        zIndex: 5,
+        display: "flex",
+        justifyContent: "center",
+      }}
+    >
+      <div
+        style={{
+          width: 1,
+          height: "100%",
+          background: hot ? C_INK : "transparent",
+          opacity: hot ? 0.35 : 0,
+          transition: `opacity .15s ${C_EASE}, background .15s ${C_EASE}`,
+        }}
+      />
+    </div>
+  );
+}
+
+export default function AgentPanel({ file, width, onResizeStart, mobileOpen, onMobileClose, onOpenFullChat }) {
   return (
     <aside
       className={`files-agent-panel${mobileOpen ? " mobile-open" : ""}`}
       style={{
-        width: 360,
+        width,
         flexShrink: 0,
         background: C_SIDEBAR,
         borderLeft: `1px solid ${C_LINE}`,
         display: "flex",
         flexDirection: "column",
         minHeight: 0,
+        position: "relative",
       }}
     >
+      {onResizeStart && <ResizeHandle onResizeStart={onResizeStart} />}
       <div
         style={{
           height: 52,
@@ -125,64 +165,45 @@ export default function AgentPanel({ file, mobileOpen, onMobileClose, onOpenFull
         )}
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "18px 18px 6px" }}>
-        <div style={{ display: "flex", gap: 12, marginBottom: 18 }}>
-          <AgentLogo size={32} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 600,
-                color: C_INK,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                marginBottom: 5,
-              }}
-            >
-              Lumen
-              <span style={{ fontSize: 10.5, color: C_MUTED2, fontWeight: 400 }}>· file thread</span>
-            </div>
-            <div style={{ fontSize: 13, lineHeight: 1.55, color: C_INK2 }}>
-              {file ? (
-                <>
-                  Ask me anything about{" "}
-                  <strong style={{ color: C_INK, fontWeight: 600 }}>{file.name}</strong>. This is a focused
-                  thread — for cross-file work or general questions, switch to{" "}
-                  <a
-                    onClick={onOpenFullChat}
-                    style={{
-                      color: C_INK,
-                      fontWeight: 500,
-                      textDecoration: "none",
-                      borderBottom: `1px solid ${C_LINE}`,
-                      cursor: "pointer",
-                    }}
-                  >
-                    full chat
-                  </a>
-                  .
-                </>
-              ) : (
-                <>
-                  Open a file from the sidebar to start a focused thread. For general questions, use{" "}
-                  <a
-                    onClick={onOpenFullChat}
-                    style={{
-                      color: C_INK,
-                      fontWeight: 500,
-                      textDecoration: "none",
-                      borderBottom: `1px solid ${C_LINE}`,
-                      cursor: "pointer",
-                    }}
-                  >
-                    full chat
-                  </a>
-                  .
-                </>
-              )}
-            </div>
-          </div>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "20px 20px 6px" }}>
+        {/* Quiet intro — header already establishes identity + scope, no second mark. */}
+        <div style={{ fontSize: 13, lineHeight: 1.55, color: C_INK2, marginBottom: 20 }}>
+          {file ? (
+            <>
+              Ask anything about{" "}
+              <strong style={{ color: C_INK, fontWeight: 600 }}>{file.name}</strong>. For cross-file work, switch to{" "}
+              <a
+                onClick={onOpenFullChat}
+                style={{
+                  color: C_INK,
+                  fontWeight: 500,
+                  textDecoration: "none",
+                  borderBottom: `1px solid ${C_LINE}`,
+                  cursor: "pointer",
+                }}
+              >
+                full chat
+              </a>
+              .
+            </>
+          ) : (
+            <>
+              Open a file to start a focused thread, or use{" "}
+              <a
+                onClick={onOpenFullChat}
+                style={{
+                  color: C_INK,
+                  fontWeight: 500,
+                  textDecoration: "none",
+                  borderBottom: `1px solid ${C_LINE}`,
+                  cursor: "pointer",
+                }}
+              >
+                full chat
+              </a>
+              {" "}for anything broader.
+            </>
+          )}
         </div>
 
         <div
@@ -271,7 +292,7 @@ function Composer({ disabled, file }) {
   const has = value.trim().length > 0;
 
   return (
-    <div style={{ padding: "8px 16px 18px" }}>
+    <div className="composer" style={{ padding: "8px 16px 18px" }}>
       <div
         style={{
           background: C_BG,
@@ -329,6 +350,7 @@ function Composer({ disabled, file }) {
           </button>
           <div style={{ flex: 1 }} />
           <div
+            className="composer-mode"
             style={{
               display: "inline-flex",
               background: C_SURFACE2,

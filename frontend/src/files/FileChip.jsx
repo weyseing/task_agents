@@ -1,51 +1,41 @@
-import { C_LINE, C_MUTED, TYPE_META } from "./tokens";
+import { C_MUTED, TYPE_META } from "./tokens";
 
-export function FileChip({ type, size = 18 }) {
-  const meta = TYPE_META[type] || { label: type?.toUpperCase() || "·", tone: C_MUTED };
+// File-type "icon" — small uppercase monospace label (MD, TXT, CSV, …)
+// in a single muted slate. The label IS the icon — no shell, no dot.
+// Matches the chip from `Lumen Files.html` design.
+function FileLabel({ type, size, fontWeight = 600, padded = false }) {
+  const meta = TYPE_META[type] || {
+    label: (type || "·").toString().toUpperCase().slice(0, 4),
+    tone: C_MUTED,
+  };
+  const fontSize = Math.max(8.5, Math.round(size * 0.62));
   return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: 4,
-        background: "#fff",
-        border: `1px solid ${C_LINE}`,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-        position: "relative",
-      }}
+    <span
       title={meta.label}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "flex-start",
+        height: size,
+        minWidth: padded ? Math.round(size * 1.9) : undefined,
+        color: meta.tone,
+        fontFamily: 'ui-monospace, "SF Mono", "Roboto Mono", monospace',
+        fontSize,
+        fontWeight,
+        letterSpacing: "0.04em",
+        lineHeight: 1,
+        flexShrink: 0,
+      }}
     >
-      <div style={{ width: 4, height: 4, borderRadius: "50%", background: meta.tone }} />
-    </div>
+      {meta.label}
+    </span>
   );
 }
 
+export function FileChip({ type, size = 16 }) {
+  return <FileLabel type={type} size={size} padded />;
+}
+
 export function FileChipLg({ type }) {
-  const meta = TYPE_META[type] || { label: type?.toUpperCase() || "·", tone: C_MUTED };
-  return (
-    <div
-      style={{
-        height: 17,
-        padding: "0 5px",
-        borderRadius: 3,
-        background: "#fff",
-        border: `1px solid ${C_LINE}`,
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 5,
-        flexShrink: 0,
-        fontFamily: 'ui-monospace, "SF Mono", monospace',
-        fontSize: 9,
-        fontWeight: 500,
-        color: C_MUTED,
-        letterSpacing: "0.06em",
-      }}
-    >
-      <span style={{ width: 4, height: 4, borderRadius: "50%", background: meta.tone }} />
-      {meta.label}
-    </div>
-  );
+  return <FileLabel type={type} size={18} padded />;
 }

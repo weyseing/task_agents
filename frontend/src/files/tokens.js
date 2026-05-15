@@ -15,14 +15,20 @@ export const C_SURFACE2 = "#EEF1F6";
 export const C_SURFACE3 = "#E4E9F1";
 export const C_EASE = "cubic-bezier(.22,.61,.36,1)";
 
+// All file types render in a single muted slate — the label text itself
+// ("MD", "PDF", "CSV") is the signal. No color coding, so the tree reads
+// as one quiet column.
+const TYPE_LABEL_TONE = "#9098A6";
 export const TYPE_META = {
-  md: { label: "MD", tone: "#5B7CFF" },
-  txt: { label: "TXT", tone: "#7B8597" },
-  json: { label: "JSON", tone: "#9333EA" },
-  csv: { label: "CSV", tone: "#1F8A5B" },
-  xlsx: { label: "XLSX", tone: "#1F8A5B" },
-  docx: { label: "DOCX", tone: "#2563EB" },
-  pptx: { label: "PPTX", tone: "#EA580C" },
-  pdf: { label: "PDF", tone: "#DC2626" },
-  png: { label: "PNG", tone: "#0891B2" },
+  md: { label: "MD", tone: TYPE_LABEL_TONE },
+  txt: { label: "TXT", tone: TYPE_LABEL_TONE },
+  json: { label: "JSON", tone: TYPE_LABEL_TONE },
+  csv: { label: "CSV", tone: TYPE_LABEL_TONE },
+  xlsx: { label: "XLSX", tone: TYPE_LABEL_TONE },
+  docx: { label: "DOC", tone: TYPE_LABEL_TONE },
+  pptx: { label: "PPT", tone: TYPE_LABEL_TONE },
+  pdf: { label: "PDF", tone: TYPE_LABEL_TONE },
+  png: { label: "PNG", tone: TYPE_LABEL_TONE },
+  jpg: { label: "JPG", tone: TYPE_LABEL_TONE },
+  svg: { label: "SVG", tone: TYPE_LABEL_TONE },
 };

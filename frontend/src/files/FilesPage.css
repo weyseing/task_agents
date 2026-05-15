@@ -181,14 +181,28 @@
     aspect-ratio: 16 / 9;
   }
 
-  /* Agent composer doesn't need to be wider than the drawer */
+  /* Drag-to-resize handle is meaningless when the panel is a drawer. */
+  .files-agent-resize {
+    display: none !important;
+  }
+
+  /* Agent composer doesn't need to be wider than the drawer, and must clear
+     the iOS home indicator on phones that have one. */
   .files-agent-panel .composer {
-    padding: 8px 12px 16px !important;
+    padding: 8px 12px max(16px, env(safe-area-inset-bottom)) !important;
   }
 
   /* No hover on touch — show delete buttons by default. */
   .row-del {
     opacity: 1;
+  }
+}
+
+/* Below 380px: free up horizontal room in the composer toolbar — the segmented
+   mode control is the easiest casualty (most users stay on "auto" anyway). */
+@media (max-width: 380px) {
+  .files-agent-panel .composer-mode {
+    display: none !important;
   }
 }
 
