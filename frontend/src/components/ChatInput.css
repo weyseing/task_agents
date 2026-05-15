@@ -257,21 +257,22 @@
   }
 
   .mode-btn {
-    padding: 4px 8px;
-    font-size: 11.5px;
+    padding: 5px 10px;
+    font-size: 13px;
   }
 
   .composer-send {
-    width: 32px;
-    height: 32px;
+    width: 34px;
+    height: 34px;
     border-radius: 9px;
   }
 
   .composer-foot {
     margin: 8px auto 0;
-    font-size: 10px;
+    font-size: 11px;
     flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
+    text-align: center;
     gap: 2px;
   }
 

@@ -83,7 +83,7 @@ export default function SheetEditor({ file, onChange }) {
                   {colLetter(i)}
                 </th>
               ))}
-              <th style={addColHeaderCell()} title="Add column" onClick={addColumn}>
+              <th className="files-sheet-add-col-header" style={addColHeaderCell()} title="Add column" onClick={addColumn}>
                 +
               </th>
             </tr>
@@ -125,7 +125,7 @@ export default function SheetEditor({ file, onChange }) {
                     />
                   </td>
                 ))}
-                <td style={addColCell()} onClick={addColumn} title="Add column" />
+                <td className="files-sheet-add-col-cell" style={addColCell()} onClick={addColumn} title="Add column" />
               </tr>
             ))}
             <tr>

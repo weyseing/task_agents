@@ -18,8 +18,21 @@ function CodeBlock({ inline, className, children, ...rest }) {
   );
 }
 
+function TableWrap({ children }) {
+  // Wrap markdown tables in a horizontally-scrollable container so wide
+  // tables don't push the whole chat sideways on mobile. `overscroll-behavior:
+  // contain` keeps the scroll chain from bubbling to the page when the user
+  // hits either edge of the table.
+  return (
+    <div className="reply-table-scroll">
+      <table>{children}</table>
+    </div>
+  );
+}
+
 const markdownComponents = {
   code: CodeBlock,
+  table: TableWrap,
 };
 
 function ActionButton({ title, onClick, children }) {

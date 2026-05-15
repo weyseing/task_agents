@@ -620,7 +620,7 @@
 /* ============== Mobile ============== */
 @media (max-width: 760px) {
   .toolcall summary {
-    padding: 6px 0 6px 10px;
+    padding: 8px 0 8px 10px;
     gap: 7px;
   }
 
@@ -629,20 +629,46 @@
     flex-wrap: wrap;
   }
 
+  .tc-name        { font-size: 13.5px; }
+  .tc-badge       { font-size: 10.5px; }
+  .tc-status      { font-size: 12.5px; }
+
   /* On mobile, drop the arg preview (it's redundant with the tool name and
      causes the summary row to wrap awkwardly). */
   .tc-arg {
     display: none;
   }
 
+  /* Expanded tool-call body: bump every text-y class so it's actually
+     readable on a phone. */
+  .tc-title           { font-size: 14.5px; }
+  .tc-source          { font-size: 12.5px; }
+  .tc-snippet         { font-size: 13.5px; line-height: 1.55; }
+  .tc-foot            { font-size: 11.5px; }
+  .tc-empty,
+  .tc-error           { font-size: 13.5px; }
+  .tool-raw           { font-size: 12.5px; }
+  .tc-rank            { font-size: 11px; }
+
+  /* Email rows */
   .email-from {
     max-width: 110px;
-    font-size: 12px;
+    font-size: 13.5px;
   }
+  .email-subject-text { font-size: 13.5px; }
+  .email-meta         { font-size: 12px; }
+  .email-date         { font-size: 12px; }
+  .email-snippet,
+  .email-body         { font-size: 13.5px; line-height: 1.6; }
 
-  .email-subject-text {
-    font-size: 12px;
-  }
+  /* Send result + draft widgets */
+  .send-result        { font-size: 13.5px; }
+  .send-detail        { font-size: 12.5px; }
+  .draft-preparing    { font-size: 13.5px; }
+  .send-draft-header  { font-size: 12.5px; }
+  .send-draft-row     { font-size: 13.5px; }
+  .send-draft-row .k  { font-size: 12px; }
+  .send-draft-body    { font-size: 14px; line-height: 1.6; }
 
   .image-card {
     flex: 0 0 110px;

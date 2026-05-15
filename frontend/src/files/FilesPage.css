@@ -56,11 +56,12 @@
     box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
   }
 
-  /* Right drawer: agent panel */
+  /* Right drawer: agent panel — full-screen on mobile so the chat has
+     enough room (the 380px-max drawer felt cramped for typing). */
   .files-agent-panel {
     position: fixed !important;
-    top: 0; right: 0; bottom: 0;
-    width: 92vw; max-width: 380px;
+    top: 0; right: 0; bottom: 0; left: 0;
+    width: 100vw !important; max-width: none !important;
     z-index: 50;
     transform: translateX(100%);
     transition: transform 0.22s var(--ease);
@@ -94,9 +95,18 @@
     display: none !important;
   }
 
-  /* Editors: shrink padding so content fits a phone. */
+  /* Editors: shrink padding so content fits a phone, and nudge font sizes
+     up a bit for mobile reading. */
   .files-text-editor {
     padding: 24px 20px !important;
+    font-size: 15px !important;
+    line-height: 1.6 !important;
+  }
+  .files-md-pane,
+  .files-md-pane textarea,
+  .files-md-pane .files-md-preview {
+    font-size: 15px !important;
+    line-height: 1.7 !important;
   }
   .files-md-pane textarea,
   .files-md-pane .files-md-preview {
@@ -174,6 +184,23 @@
     padding: 12px !important;
   }
 
+  /* The "+" add-column strip is 32px on desktop — too thin to tap reliably
+     on a phone. Widen the affordance, fatten the glyph, and make the dashed
+     border more visible so users see the target. */
+  .files-sheet-add-col-header,
+  .files-sheet-add-col-cell {
+    width: 56px !important;
+    min-width: 56px !important;
+  }
+  .files-sheet-add-col-header {
+    font-size: 22px !important;
+    color: var(--ink-2) !important;
+    background: #E8ECF3 !important;
+  }
+  .files-sheet-add-col-cell {
+    background: rgba(15, 23, 42, 0.025) !important;
+  }
+
   /* Image viewer: shrink */
   .files-image {
     width: 88vw !important;
@@ -192,9 +219,80 @@
     padding: 8px 12px max(16px, env(safe-area-inset-bottom)) !important;
   }
 
+  /* Editor status bar sits at the very bottom of the page — pad it so the
+     "all changes saved · md · 5 lines…" row clears the iOS home indicator
+     instead of getting nibbled. */
+  .files-status-bar {
+    padding: 6px 14px max(8px, env(safe-area-inset-bottom)) !important;
+    font-size: 11.5px !important;
+  }
+
+  /* The sidebar drawer is anchored top:0/bottom:0, so its account footer
+     bumps right into the home indicator without this padding. */
+  .files-sidebar {
+    padding-bottom: max(12px, env(safe-area-inset-bottom)) !important;
+  }
+
   /* No hover on touch — show delete buttons by default. */
   .row-del {
     opacity: 1;
+  }
+
+  /* === Mobile font-size bumps for /files ===
+     Most of the Files UI uses inline styles, so we override with class
+     descendant selectors + !important. Goal: nothing below ~12.5px in
+     body copy, and any text input at 16px so iOS doesn't auto-zoom. */
+
+  /* Files sidebar now reuses .brand-name / .brand-sub / .nav-item classes
+     from Sidebar.css — mobile font bumps live there. */
+
+  /* File-tree rows */
+  .tree-row {
+    font-size: 14px !important;
+    padding: 9px 10px !important;
+  }
+
+  /* Tab strip */
+  .tab-strip-item {
+    font-size: 14px !important;
+  }
+
+  /* Top bar — file name and "no file open" placeholder are the only direct
+     text spans in the breadcrumb area. */
+  .files-topbar > div > span {
+    font-size: 15px !important;
+  }
+  /* Save button */
+  .files-topbar button {
+    font-size: 13.5px !important;
+  }
+
+  /* Agent panel: header, body copy, suggestion items, composer. */
+  .agent-panel-title       { font-size: 14px !important; }
+  .agent-panel-scope       { font-size: 12px !important; }
+  .agent-panel-intro       { font-size: 14.5px !important; line-height: 1.55 !important; }
+  .agent-suggestion-title  { font-size: 14px !important; }
+  .agent-suggestion-sub    { font-size: 12.5px !important; }
+  .agent-composer-foot     { font-size: 11px !important; }
+  /* Composer textarea: 16px is the iOS no-zoom-on-focus floor. */
+  .files-agent-panel textarea {
+    font-size: 16px !important;
+    line-height: 1.45 !important;
+  }
+  /* Composer mode buttons */
+  .files-agent-panel .composer-mode button {
+    font-size: 12.5px !important;
+    padding: 5px 10px !important;
+  }
+
+  /* Editor status bar already overridden above; bump its label sizes. */
+  .files-status-bar {
+    font-size: 12px !important;
+    justify-content: center;
+  }
+  .files-status-empty {
+    flex: 1;
+    text-align: center;
   }
 }
 

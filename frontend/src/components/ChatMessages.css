@@ -88,6 +88,18 @@
   font-size: 13.5px;
   line-height: 1.6;
   color: var(--ink-2);
+  /* Hard-clamp the prose column so nothing inside (wide tables, long URLs,
+     code blocks) can push the chat sideways. Children that need their own
+     scroll affordance opt into it (e.g. .reply-table-scroll, pre.codeblock). */
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.reply > * {
+  max-width: 100%;
+  min-width: 0;
 }
 
 .reply > * + * {
@@ -185,6 +197,50 @@
   font-family: ui-monospace, "SF Mono", monospace;
 }
 
+.reply-table-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  margin: 8px 0;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  /* Table-scroll is the one .reply descendant that *should* be allowed to
+     have content wider than the column — the wrapper scrolls horizontally
+     so it never bleeds into the page. */
+  max-width: 100%;
+}
+
+.reply-table-scroll table {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  font-size: 13px;
+  margin: 0;
+}
+
+/* Cells should NOT inherit the .reply `word-break: break-word` /
+   `overflow-wrap: anywhere` rule — that turned column headers into
+   single-character columns. Cells are one line; horizontal scroll on the
+   wrapper handles anything wider than the viewport. */
+.reply-table-scroll th,
+.reply-table-scroll td {
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+  padding: 8px 12px;
+}
+.reply-table-scroll tr:last-child td {
+  border-bottom: 0;
+}
+.reply-table-scroll th:last-child,
+.reply-table-scroll td:last-child {
+  border-right: 0;
+}
+
+/* Fallback for any bare <table> (non-markdown) inside .reply */
 .reply table {
   border-collapse: collapse;
   width: 100%;
@@ -362,8 +418,9 @@
 
   .msg.user .bubble {
     max-width: 88%;
-    padding: 10px 14px;
-    font-size: 14px;
+    padding: 11px 15px;
+    font-size: 15.5px;
+    line-height: 1.5;
   }
 
   .msg.assistant {
@@ -371,26 +428,35 @@
   }
 
   .msg .msg-mark {
-    flex: 0 0 30px;
+    flex: 0 0 32px;
   }
 
   .msg .msg-mark svg {
-    width: 30px !important;
-    height: 30px !important;
+    width: 32px !important;
+    height: 32px !important;
   }
 
   .assistant-name {
-    font-size: 11.5px;
+    font-size: 12.5px;
   }
 
   .reply {
-    font-size: 14px;
+    font-size: 15.5px;
+    line-height: 1.6;
   }
+
+  .reply h1 { font-size: 20px; }
+  .reply h2 { font-size: 18px; }
+  .reply h3 { font-size: 16px; }
 
   .reply pre.codeblock {
     padding: 12px 12px;
-    font-size: 11.5px;
+    font-size: 12.5px;
     border-radius: 8px;
+  }
+
+  .reply code {
+    font-size: 13px;
   }
 
   /* Always show action row on mobile (no hover state on touch). */

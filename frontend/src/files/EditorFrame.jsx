@@ -1,4 +1,5 @@
 import FileEditor from "./editors";
+import EditorZoom from "./EditorZoom";
 import { C_BG, C_LINE, C_MUTED2, TYPE_META } from "./tokens";
 
 export default function EditorFrame({ file, onChange, dirty }) {
@@ -13,10 +14,17 @@ export default function EditorFrame({ file, onChange, dirty }) {
         background: C_BG,
       }}
     >
-      <FileEditor file={file} onChange={onChange} />
+      {file ? (
+        <EditorZoom fileId={file.id}>
+          <FileEditor file={file} onChange={onChange} />
+        </EditorZoom>
+      ) : (
+        <FileEditor file={file} onChange={onChange} />
+      )}
       <div
+        className="files-status-bar"
         style={{
-          height: 28,
+          minHeight: 28,
           borderTop: `1px solid ${C_LINE}`,
           background: "#FBFCFD",
           display: "flex",
@@ -49,11 +57,9 @@ export default function EditorFrame({ file, onChange, dirty }) {
             <span>{contentMeasure(file)}</span>
             <div style={{ flex: 1 }} />
             <span>UTF-8</span>
-            <span style={{ color: C_LINE }}>·</span>
-            <span>v4.2.1</span>
           </>
         ) : (
-          <span>No file open · click a file in the sidebar to begin</span>
+          <span className="files-status-empty">No file open · click a file in the sidebar to begin</span>
         )}
       </div>
     </main>

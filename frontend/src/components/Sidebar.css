@@ -486,10 +486,26 @@
     box-shadow: none;
     /* Force the same layout on mobile even if `.sidebar.collapsed` was set
        (the desktop collapse state is irrelevant in drawer mode). */
-    padding: 16px 14px 12px;
+    padding: 16px 14px max(12px, env(safe-area-inset-bottom));
     align-items: stretch;
     gap: 16px;
   }
+
+  /* === Mobile font bumps across the chat sidebar / menu === */
+  .brand-name        { font-size: 16px; }
+  .brand-sub         { font-size: 11.5px; }
+  .nav-item          { font-size: 15px; padding: 10px 12px; }
+  .nav-item svg      { width: 17px; height: 17px; flex: 0 0 17px; }
+  .nav-item .kbd     { font-size: 11.5px; }
+  /* 16px = iOS no-zoom-on-focus floor. */
+  .sidebar-search    { font-size: 16px; padding: 10px 14px; }
+  .nav-section-title { font-size: 11px; }
+  .chats-group-label { font-size: 12px; }
+  .chat-row          { font-size: 14.5px; padding: 10px 12px; }
+  .chats-empty       { font-size: 13.5px; }
+  .me-name           { font-size: 14px; }
+  .me-meta           { font-size: 12px; }
+  .sidebar-foot-menu-item { font-size: 14px; }
 
   .sidebar.mobile-open {
     transform: translateX(0);

@@ -91,10 +91,11 @@ export default function AgentPanel({ file, width, onResizeStart, mobileOpen, onM
           }}
         />
         <div style={{ flex: 1, display: "flex", flexDirection: "column", lineHeight: 1.1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: C_INK, letterSpacing: "-0.005em" }}>
+          <div className="agent-panel-title" style={{ fontSize: 13, fontWeight: 600, color: C_INK, letterSpacing: "-0.005em" }}>
             Agent
           </div>
           <div
+            className="agent-panel-scope"
             style={{
               fontSize: 10.5,
               color: C_MUTED,
@@ -167,7 +168,7 @@ export default function AgentPanel({ file, width, onResizeStart, mobileOpen, onM
 
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "20px 20px 6px" }}>
         {/* Quiet intro — header already establishes identity + scope, no second mark. */}
-        <div style={{ fontSize: 13, lineHeight: 1.55, color: C_INK2, marginBottom: 20 }}>
+        <div className="agent-panel-intro" style={{ fontSize: 13, lineHeight: 1.55, color: C_INK2, marginBottom: 20 }}>
           {file ? (
             <>
               Ask anything about{" "}
@@ -279,8 +280,8 @@ function Suggestion({ glyph, title, sub, disabled }) {
         {glyph}
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12.5, color: C_INK, fontWeight: 500, lineHeight: 1.3 }}>{title}</div>
-        <div style={{ fontSize: 11, color: C_MUTED, lineHeight: 1.4, marginTop: 1 }}>{sub}</div>
+        <div className="agent-suggestion-title" style={{ fontSize: 12.5, color: C_INK, fontWeight: 500, lineHeight: 1.3 }}>{title}</div>
+        <div className="agent-suggestion-sub" style={{ fontSize: 11, color: C_MUTED, lineHeight: 1.4, marginTop: 1 }}>{sub}</div>
       </div>
     </div>
   );
@@ -410,6 +411,7 @@ function Composer({ disabled, file }) {
         </div>
       </div>
       <div
+        className="agent-composer-foot"
         style={{
           marginTop: 8,
           textAlign: "center",
@@ -419,7 +421,7 @@ function Composer({ disabled, file }) {
           letterSpacing: "0.05em",
         }}
       >
-        MESSAGES SYNC TO CHAT · v4.3
+        MESSAGES SYNC TO CHAT
       </div>
     </div>
   );

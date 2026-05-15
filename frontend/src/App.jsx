@@ -4,6 +4,7 @@ import ChatHome from "./components/ChatHome";
 import ChatMessages from "./components/ChatMessages";
 import ChatInput from "./components/ChatInput";
 import LoginPage from "./components/LoginPage";
+import LoadingScreen from "./components/LoadingScreen";
 import Topbar from "./components/Topbar";
 import FilesPage from "./files/FilesPage";
 import { apiFetch } from "./api";
@@ -67,7 +68,8 @@ export default function App() {
     } catch {}
   }, []);
 
-  // On mount: check existing session
+  // On mount: check existing session. `?slowAuth=N` query param delays the
+  // resolution by N seconds — handy for previewing the loading screen.
   useEffect(() => {
     (async () => {
       try {
@@ -76,6 +78,12 @@ export default function App() {
           setUser(await res.json());
         }
       } catch {}
+      const delay = parseFloat(
+        new URLSearchParams(window.location.search).get("slowAuth") || "0"
+      );
+      if (delay > 0) {
+        await new Promise((r) => setTimeout(r, delay * 1000));
+      }
       setAuthChecked(true);
     })();
   }, []);
@@ -310,7 +318,7 @@ export default function App() {
     setChatStarted(false);
   };
 
-  if (!authChecked) return null;
+  if (!authChecked) return <LoadingScreen />;
   if (!user) return <LoginPage onSignedIn={setUser} />;
 
   if (route === "files") {

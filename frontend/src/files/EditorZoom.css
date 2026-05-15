@@ -1,0 +1,126 @@
+.editor-zoom-shell {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.editor-zoom-viewport {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  position: relative;
+  /* Allow vertical pan + native momentum scrolling on iOS, but reserve our
+     own pinch handling for two-finger gestures. */
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  /* Flex column so .editor-zoom-content can use flex:1 instead of
+     height:100% — percentage heights inside overflow:auto are flaky in
+     Chrome, but flex-computed heights are reliable. */
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-zoom-content {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The single FileEditor child of .editor-zoom-content must also fill the
+   flex column so its own descendant percentage-heights (textarea
+   {min-height:100%}) resolve. The editors already declare flex:1 inline. */
+.editor-zoom-content > * {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ============== Floating zoom toolbar ============== */
+.editor-zoom-controls {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 6px 18px -8px rgba(15, 23, 42, 0.18);
+  user-select: none;
+}
+
+.editor-zoom-btn,
+.editor-zoom-label {
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  transition: background 0.12s var(--ease), color 0.12s var(--ease);
+}
+
+.editor-zoom-btn {
+  width: 28px;
+}
+
+.editor-zoom-label {
+  min-width: 44px;
+  font-family: ui-monospace, "SF Mono", monospace;
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.editor-zoom-btn:hover:not(:disabled),
+.editor-zoom-label:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.editor-zoom-btn:disabled {
+  color: var(--muted-2);
+  cursor: not-allowed;
+}
+
+/* ============== Mobile ============== */
+@media (max-width: 760px) {
+  .editor-zoom-controls {
+    right: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    padding: 5px;
+    gap: 3px;
+    border-radius: 12px;
+  }
+
+  /* iOS minimum tap target = 44px. */
+  .editor-zoom-btn {
+    width: 40px;
+    height: 40px;
+  }
+  .editor-zoom-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+  .editor-zoom-label {
+    height: 40px;
+    min-width: 52px;
+    font-size: 13px;
+  }
+}

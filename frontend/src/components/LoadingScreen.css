@@ -1,0 +1,134 @@
+.loading-screen {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: ls-fade 0.2s var(--ease) both;
+  font-family: "Sora", system-ui, -apple-system, sans-serif;
+  padding: 24px;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+}
+
+.loading-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  max-width: 360px;
+  text-align: center;
+}
+
+/* === Brand mark: stacked glass tiles with a breath cycle === */
+.loading-mark {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  animation: ls-breath 1.9s var(--ease) infinite;
+}
+
+.loading-tile-back {
+  transform-origin: 50% 50%;
+  transform-box: fill-box;
+  animation: ls-anchor 1.9s var(--ease) infinite;
+}
+
+@keyframes ls-breath {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.05); }
+}
+
+@keyframes ls-anchor {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
+/* === Wordmark === */
+.loading-wordmark {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  line-height: 1;
+}
+
+/* === Three pulsing dots === */
+.loading-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.loading-dots span {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--muted-2);
+  display: inline-block;
+  animation: ls-dot 1.2s var(--ease) infinite;
+}
+
+.loading-dots span:nth-child(2) { animation-delay: 0.15s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes ls-dot {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40%           { opacity: 1;    transform: translateY(-2px); }
+}
+
+/* === Status message === */
+.loading-status {
+  font-size: 13px;
+  color: var(--muted);
+  letter-spacing: 0.002em;
+  line-height: 1.5;
+  margin-top: 2px;
+  min-height: 19px;
+  transition: opacity 0.25s var(--ease);
+}
+
+.loading-status-loading { color: var(--muted-2); }
+.loading-status-slow    { color: var(--muted); }
+.loading-status-cold    {
+  color: var(--ink-2);
+  max-width: 300px;
+}
+
+/* === Footer === */
+.loading-footer {
+  position: absolute;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  font-size: 11px;
+  color: var(--muted-2);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+@keyframes ls-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* === Mobile === */
+@media (max-width: 760px) {
+  .loading-mark {
+    width: 72px;
+    height: 72px;
+  }
+  .loading-mark svg {
+    width: 72px;
+    height: 72px;
+  }
+  .loading-wordmark {
+    font-size: 24px;
+  }
+  .loading-status {
+    font-size: 14px;
+  }
+}

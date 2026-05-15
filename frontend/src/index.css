@@ -37,6 +37,10 @@ body {
   -webkit-font-smoothing: antialiased;
   letter-spacing: -0.005em;
   overflow: hidden;
+  /* Disable iOS double-tap-to-zoom and pinch helpers; user-scalable=no is
+     ignored by iOS Safari, but `touch-action: manipulation` plus the
+     gesture-event guards in main.jsx cover what the viewport meta misses. */
+  touch-action: manipulation;
 }
 
 #root {
