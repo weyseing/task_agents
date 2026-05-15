@@ -1,0 +1,78 @@
+Lumen Files — Frontend Implementation Plan
+Date: 2026-05-16
+Source: claude.ai/design handoff (Lumen Files.html + editors.jsx + fs-data.jsx)
+
+GOAL
+====
+Port the Lumen Files design into the existing React app. Frontend only today;
+backend (file storage on Cloudflare R2 + per-user APIs) tomorrow.
+
+LAYOUT (3-pane)
+===============
+[ Sidebar 268px ] [ Editor (TopBar / Tabs / Editor / StatusBar) flex ] [ Agent 360px ]
+
+ROUTING
+=======
+- Add `/files` path. App.jsx routes between Chat (existing) and Files (new).
+- Reuse existing LumenSvgDefs (glass logo defs are identical).
+
+NEW FILES (frontend/src/files/)
+===============================
+  FilesPage.jsx        — top-level: state for fs/tabs/active/expanded/confirm,
+                         keyboard ⌘S, defaults README open
+  FilesSidebar.jsx     — brand block, primary nav (Chat→/, Files active),
+                         file tree (collapsible folders, hover-to-delete)
+  FilesTopBar.jsx      — breadcrumb · file chip · Save · Discuss · Share
+  TabStrip.jsx         — VS-Code-style tabs, dirty dot, close-on-hover
+  EditorFrame.jsx      — dispatches by file.type, renders status bar
+  AgentPanel.jsx       — header (scoped to file) + greeting + suggestions
+                         + composer (disabled v1 — wires to chat in v4.3)
+  ConfirmDialog.jsx    — backdrop blur, used for delete confirm
+  fsData.js            — port of fs-data.jsx (mock filesystem; replaced by
+                         API calls in tomorrow's backend phase)
+  editors/
+    MarkdownEditor.jsx — split / edit / preview
+    TextEditor.jsx     — txt + json (mono for json)
+    SheetEditor.jsx    — csv + xlsx grid w/ formula bar
+    DocxEditor.jsx     — block list, contenteditable, toolbar
+    PptxViewer.jsx     — slide rail + stage
+    PdfViewer.jsx      — paginated pages
+    ImageViewer.jsx    — png placeholder w/ palette
+
+NAV WIRING
+==========
+- Existing Sidebar.jsx: change "Files" nav item to navigate to /files (via
+  history.pushState + a small route signal).
+- Files sidebar Chat nav → navigates to / (chat).
+
+VISUAL CONSISTENCY
+==================
+- Reuse :root color tokens already in index.css (--ink, --line, --muted, etc.)
+- Sora font already loaded.
+- Import Sora weights 300/400/500/600/700 if not all present (check).
+
+OUT OF SCOPE TODAY
+==================
+- Real file storage (mock data in fsData.js)
+- Upload/download/rename actions (only delete works)
+- Agent panel composer is disabled (placeholder)
+
+MOBILE RESPONSIVE (added later same day)
+========================================
+- Breakpoint: 760px (matches existing chat sidebar)
+- New: useMediaQuery hook, FilesPage.css
+- Sidebar slides in from left as a drawer; agent panel slides in from right
+- Backdrop overlay closes both
+- TopBar adds hamburger (left) + agent toggle (right) on mobile
+- Hides breadcrumb root + Discuss button to save room; <380px hides Share/More
+- Markdown editor: split mode auto-falls-back to edit (no horizontal split)
+- Docx + PDF page widths shrink to viewport
+- PPTX rail: vertical (200px) → horizontal scroll strip (86px tall)
+- Image viewer: shrinks to viewport width
+
+TOMORROW (BACKEND)
+==================
+- DB: workspaces + files tables (per-user isolation via user_id)
+- backend/storage.py interface; LocalStorage (dev) + R2Storage (prod)
+- REST: GET/POST/PATCH/DELETE /api/files; PUT /api/files/{id}/content
+- Wire FilesPage to API; remove fsData.js mock

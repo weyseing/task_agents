@@ -67,6 +67,15 @@ function AgentsIcon() {
   );
 }
 
+function FilesIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5" />
+    </svg>
+  );
+}
+
 function CogIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
@@ -222,6 +231,7 @@ export default function Sidebar({
   onSelect,
   onRename,
   onDelete,
+  onNavFiles,
   user,
   onLogout,
 }) {
@@ -316,6 +326,10 @@ export default function Sidebar({
         <button type="button" className="nav-item" disabled title="Coming soon">
           <TasksIcon />
           <span>Tasks</span>
+        </button>
+        <button type="button" className="nav-item" onClick={onNavFiles}>
+          <FilesIcon />
+          <span>Files</span>
         </button>
         <button type="button" className="nav-item" disabled title="Coming soon">
           <AgentsIcon />

@@ -5,19 +5,28 @@ import ChatMessages from "./components/ChatMessages";
 import ChatInput from "./components/ChatInput";
 import LoginPage from "./components/LoginPage";
 import Topbar from "./components/Topbar";
+import FilesPage from "./files/FilesPage";
 import { apiFetch } from "./api";
 import "./App.css";
 
 // URL helpers: chat URL pattern is `/c/<conversation_id>`; `/` means new chat.
+// `/files` renders the Files page.
 const CONV_URL_RE = /^\/c\/([a-f0-9-]+)\/?$/i;
+const FILES_URL = "/files";
 const getConvIdFromUrl = () => {
   const m = window.location.pathname.match(CONV_URL_RE);
   return m ? m[1] : null;
 };
+const isFilesUrl = () => window.location.pathname.replace(/\/$/, "") === FILES_URL;
 const pushConvUrl = (id) => {
   const target = id ? `/c/${id}` : "/";
   if (window.location.pathname !== target) {
     window.history.pushState({ conversationId: id || null }, "", target);
+  }
+};
+const pushFilesUrl = () => {
+  if (window.location.pathname !== FILES_URL) {
+    window.history.pushState({ files: true }, "", FILES_URL);
   }
 };
 
@@ -33,7 +42,20 @@ export default function App() {
   const [conversations, setConversations] = useState([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [route, setRoute] = useState(() => (isFilesUrl() ? "files" : "chat"));
   const lastUserRef = useRef(null);
+
+  const goToFiles = useCallback(() => {
+    pushFilesUrl();
+    setRoute("files");
+  }, []);
+  const goToChat = useCallback(() => {
+    pushConvUrl(null);
+    setRoute("chat");
+    setMessages([]);
+    setChatStarted(false);
+    setConversationId(null);
+  }, []);
 
   const fetchConversations = useCallback(async () => {
     try {
@@ -261,6 +283,11 @@ export default function App() {
   // Browser back/forward — sync state to the URL we just landed on.
   useEffect(() => {
     const onPop = () => {
+      if (isFilesUrl()) {
+        setRoute("files");
+        return;
+      }
+      setRoute("chat");
       const id = getConvIdFromUrl();
       if (id) loadConversation(id, { pushUrl: false });
       else handleNewChat({ pushUrl: false });
@@ -284,6 +311,10 @@ export default function App() {
 
   if (!authChecked) return null;
   if (!user) return <LoginPage onSignedIn={setUser} />;
+
+  if (route === "files") {
+    return <FilesPage user={user} onNavChat={goToChat} />;
+  }
 
   const activeConversation = conversations.find((c) => c.id === conversationId);
 
@@ -312,6 +343,7 @@ export default function App() {
         onSelect={handleMobileSelect}
         onRename={renameConversation}
         onDelete={deleteConversation}
+        onNavFiles={() => { closeMobileSidebar(); goToFiles(); }}
         user={user}
         onLogout={handleLogout}
       />

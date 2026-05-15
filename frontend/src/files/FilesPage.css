@@ -1,0 +1,184 @@
+/* Mobile-only behaviors for the Lumen Files page.
+ * Desktop styling lives in inline styles in the components themselves.
+ * Below 760px we override the grid + slide the side panels in as drawers,
+ * matching the chat sidebar's pattern (App.css / Sidebar.css).
+ */
+
+.files-mobile-menu,
+.files-mobile-agent,
+.files-mobile-agent-close {
+  display: none;
+}
+
+.files-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.42);
+  z-index: 40;
+  animation: files-backdrop-in 0.18s var(--ease) both;
+}
+
+@keyframes files-backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (max-width: 760px) {
+  /* One-column layout: editor takes the whole width, sidebars overlay. */
+  .files-page-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Left drawer: file sidebar */
+  .files-sidebar {
+    position: fixed !important;
+    top: 0; left: 0; bottom: 0;
+    width: 84vw; max-width: 320px;
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform 0.22s var(--ease);
+  }
+  .files-sidebar.mobile-open {
+    transform: translateX(0);
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+  }
+
+  /* Right drawer: agent panel */
+  .files-agent-panel {
+    position: fixed !important;
+    top: 0; right: 0; bottom: 0;
+    width: 92vw; max-width: 380px;
+    z-index: 50;
+    transform: translateX(100%);
+    transition: transform 0.22s var(--ease);
+  }
+  .files-agent-panel.mobile-open {
+    transform: translateX(0);
+    box-shadow: -20px 0 50px rgba(15, 23, 42, 0.25);
+  }
+
+  .files-mobile-menu,
+  .files-mobile-agent,
+  .files-mobile-agent-close {
+    display: inline-grid;
+  }
+
+  .files-backdrop {
+    display: block;
+  }
+
+  /* Compress the top bar a bit on phones — the WFH Group breadcrumb crowds
+     the file name. The chip + name + dirty pill are still useful. */
+  .files-topbar {
+    padding: 0 12px !important;
+    gap: 8px !important;
+  }
+  .files-topbar .breadcrumb-root,
+  .files-topbar .breadcrumb-sep {
+    display: none !important;
+  }
+  .files-topbar-discuss {
+    display: none !important;
+  }
+
+  /* Editors: shrink padding so content fits a phone. */
+  .files-text-editor {
+    padding: 24px 20px !important;
+  }
+  .files-md-pane textarea,
+  .files-md-pane .files-md-preview {
+    padding: 22px 18px !important;
+  }
+  /* On mobile the markdown split view stacks awkwardly; we force a single
+     pane via JS (see MarkdownEditor.jsx using useMediaQuery). */
+
+  .files-docx-page {
+    width: auto !important;
+    max-width: 92vw;
+    margin: 0 16px !important;
+    padding: 36px 24px !important;
+    min-height: auto !important;
+  }
+  .files-docx-scroll {
+    padding: 20px 0 !important;
+  }
+
+  .files-pdf-page {
+    width: auto !important;
+    max-width: 92vw;
+    margin: 0 16px !important;
+    padding: 36px 26px !important;
+    min-height: auto !important;
+  }
+  .files-pdf-wrapper {
+    width: auto !important;
+  }
+
+  /* PPTX: rail goes from vertical (200px wide) to a horizontal scroll strip
+     above the slide stage. */
+  .files-pptx-row {
+    flex-direction: column !important;
+  }
+  .files-pptx-rail {
+    width: 100% !important;
+    max-width: none !important;
+    height: 86px;
+    border-right: none !important;
+    border-bottom: 1px solid var(--line);
+    display: flex !important;
+    flex-direction: row !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    padding: 12px !important;
+    gap: 10px;
+  }
+  .files-pptx-rail-header {
+    display: none !important;
+  }
+  .files-pptx-thumb {
+    flex: 0 0 auto !important;
+    width: 110px;
+    margin-bottom: 0 !important;
+  }
+  .files-pptx-stage {
+    padding: 16px !important;
+  }
+  .files-pptx-slide {
+    padding: 24px 22px !important;
+    font-size: 12px;
+  }
+  .files-pptx-slide-title {
+    font-size: 24px !important;
+    margin-bottom: 12px !important;
+  }
+  .files-pptx-bullet {
+    font-size: 14px !important;
+  }
+
+  /* Sheet editor: tighter padding around the table; horizontal scroll already
+     handled by the wrapper's overflow:auto. */
+  .files-sheet-scroll {
+    padding: 12px !important;
+  }
+
+  /* Image viewer: shrink */
+  .files-image {
+    width: 88vw !important;
+    height: auto !important;
+    aspect-ratio: 16 / 9;
+  }
+
+  /* Agent composer doesn't need to be wider than the drawer */
+  .files-agent-panel .composer {
+    padding: 8px 12px 16px !important;
+  }
+}
+
+/* Very small phones — squeeze a bit more out of the toolbar. */
+@media (max-width: 380px) {
+  .files-topbar-share,
+  .files-topbar-more {
+    display: none !important;
+  }
+}
