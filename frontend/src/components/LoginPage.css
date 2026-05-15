@@ -279,3 +279,71 @@
 .login-foot-links a:hover {
   color: var(--ink-2);
 }
+
+/* ============== Mobile ============== */
+@media (max-width: 760px) {
+  .login-page {
+    height: 100dvh;
+  }
+
+  .login-top {
+    padding: 18px 20px;
+  }
+
+  .login-top-link {
+    font-size: 11.5px;
+  }
+
+  .login-top-link a {
+    margin-left: 4px;
+  }
+
+  .login-center {
+    padding: 12px 20px 40px;
+  }
+
+  .login-hero-mark {
+    width: 108px;
+    height: 108px;
+    margin-bottom: 24px;
+  }
+
+  .login-title {
+    font-size: 30px;
+    margin-bottom: 10px;
+  }
+
+  .login-lede {
+    font-size: 14px;
+    margin-bottom: 28px;
+  }
+
+  .login-google-btn {
+    padding: 13px 20px 13px 14px;
+    font-size: 14.5px;
+  }
+
+  .login-secure-strip {
+    margin-top: 20px;
+    font-size: 10.5px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .login-legal {
+    font-size: 11.5px;
+  }
+
+  .login-foot {
+    padding: 14px 20px;
+    font-size: 10.5px;
+    /* Stack the version + links so they don't overflow on narrow screens. */
+    flex-direction: column;
+    gap: 8px;
+    text-align: center;
+  }
+
+  .login-foot-links {
+    gap: 16px;
+  }
+}

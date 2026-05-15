@@ -349,3 +349,52 @@
     transform: translateY(0);
   }
 }
+
+/* ============== Mobile ============== */
+@media (max-width: 760px) {
+  .conv {
+    padding: 16px 14px 10px;
+  }
+
+  .conv-inner {
+    gap: 18px;
+  }
+
+  .msg.user .bubble {
+    max-width: 88%;
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+
+  .msg.assistant {
+    gap: 10px;
+  }
+
+  .msg .msg-mark {
+    flex: 0 0 30px;
+  }
+
+  .msg .msg-mark svg {
+    width: 30px !important;
+    height: 30px !important;
+  }
+
+  .assistant-name {
+    font-size: 11.5px;
+  }
+
+  .reply {
+    font-size: 14px;
+  }
+
+  .reply pre.codeblock {
+    padding: 12px 12px;
+    font-size: 11.5px;
+    border-radius: 8px;
+  }
+
+  /* Always show action row on mobile (no hover state on touch). */
+  .actions {
+    opacity: 1;
+  }
+}

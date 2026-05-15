@@ -215,7 +215,9 @@ export default function Sidebar({
   conversations,
   activeId,
   collapsed,
+  mobileOpen,
   onToggleCollapse,
+  onMobileClose,
   onNewChat,
   onSelect,
   onRename,
@@ -254,7 +256,7 @@ export default function Sidebar({
           title="Expand sidebar"
         >
           <span className="brand-collapsed-logo">
-            <img src="/favicon.png" alt="Task Agents" className="brand-favicon" />
+            <img src="/favicon.svg" alt="Task Agents" className="brand-favicon" />
           </span>
           <span className="brand-collapsed-icon">
             <SidebarToggleIcon />
@@ -271,16 +273,27 @@ export default function Sidebar({
   }
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${mobileOpen ? " mobile-open" : ""}`}>
       <div className="sidebar-top">
         <div className="brand">
-          <img src="/favicon.png" alt="Task Agents" className="brand-favicon" />
+          <img src="/favicon.svg" alt="Task Agents" className="brand-favicon" />
           <div className="brand-text">
             <div className="brand-name">Lumen</div>
             <div className="brand-sub">task agents</div>
           </div>
         </div>
-        <button type="button" className="sidebar-collapse-btn" onClick={onToggleCollapse} title="Collapse sidebar">
+        <button
+          type="button"
+          className="sidebar-collapse-btn sidebar-mobile-close"
+          onClick={onMobileClose}
+          aria-label="Close menu"
+          title="Close menu"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+        <button type="button" className="sidebar-collapse-btn sidebar-desktop-collapse" onClick={onToggleCollapse} title="Collapse sidebar">
           <SidebarToggleIcon />
         </button>
       </div>

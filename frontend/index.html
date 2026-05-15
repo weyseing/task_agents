@@ -2,38 +2,26 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/png" href="/favicon.png" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Lumen" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
     <title>Lumen — WFH Group</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <!-- Lumen mark SVG defs (gradients + clip path referenced by AgentLogo) -->
-    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
-      <defs>
-        <!-- Glass body: vertical light → dim, fairly transparent so the dark
-             back tile reads through where they overlap. -->
-        <linearGradient id="lumen-glass" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.85" />
-          <stop offset="45%"  stop-color="#FFFFFF" stop-opacity="0.45" />
-          <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.22" />
-        </linearGradient>
-
-        <!-- Inner top glow (kept for back-compat with other surfaces) -->
-        <linearGradient id="lumen-glass-highlight" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.85" />
-          <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0" />
-        </linearGradient>
-
-        <!-- Clip path matching the front (glass) tile shape, used to keep the
-             interior sheen inside the rounded rect. -->
-        <clipPath id="lumen-front-clip">
-          <rect x="38" y="8" width="54" height="54" rx="12" />
-        </clipPath>
-      </defs>
-    </svg>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

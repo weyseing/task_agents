@@ -19,6 +19,7 @@ export default function App() {
   const [conversationId, setConversationId] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const lastUserRef = useRef(null);
 
   const fetchConversations = useCallback(async () => {
@@ -245,21 +246,52 @@ export default function App() {
 
   const activeConversation = conversations.find((c) => c.id === conversationId);
 
+  const closeMobileSidebar = () => setMobileSidebarOpen(false);
+  const openMobileSidebar = () => setMobileSidebarOpen(true);
+
+  const handleMobileSelect = (id) => {
+    loadConversation(id);
+    closeMobileSidebar();
+  };
+  const handleMobileNewChat = () => {
+    handleNewChat();
+    closeMobileSidebar();
+  };
+
   return (
-    <div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
+    <div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}${mobileSidebarOpen ? " mobile-sidebar-open" : ""}`}>
       <Sidebar
         conversations={conversations}
         activeId={conversationId}
         collapsed={sidebarCollapsed}
+        mobileOpen={mobileSidebarOpen}
         onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
-        onNewChat={handleNewChat}
-        onSelect={loadConversation}
+        onMobileClose={closeMobileSidebar}
+        onNewChat={handleMobileNewChat}
+        onSelect={handleMobileSelect}
         onRename={renameConversation}
         onDelete={deleteConversation}
         user={user}
         onLogout={handleLogout}
       />
+      {mobileSidebarOpen && (
+        <div
+          className="sidebar-backdrop"
+          onClick={closeMobileSidebar}
+          aria-hidden="true"
+        />
+      )}
       <main className="main">
+        <button
+          type="button"
+          className="mobile-menu-btn"
+          onClick={openMobileSidebar}
+          aria-label="Open menu"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <path d="M4 7h16M4 12h16M4 17h16" />
+          </svg>
+        </button>
         {chatStarted && (
           <Topbar
             conversation={activeConversation}

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#FFFFFF" stop-opacity="0.85"/>
+      <stop offset="45%"  stop-color="#FFFFFF" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.22"/>
+    </linearGradient>
+    <clipPath id="frontClip">
+      <rect x="38" y="8" width="54" height="54" rx="12"/>
+    </clipPath>
+  </defs>
+  <rect x="8" y="32" width="54" height="54" rx="12" fill="#0F172A"/>
+  <rect x="38" y="8" width="54" height="54" rx="12" fill="url(#glass)" stroke="rgba(15,23,42,0.22)" stroke-width="1"/>
+  <g clip-path="url(#frontClip)">
+    <ellipse cx="62" cy="14" rx="32" ry="11" fill="rgba(255,255,255,0.55)"/>
+    <rect x="46" y="14" width="22" height="1.6" rx="0.8" fill="rgba(255,255,255,0.95)"/>
+  </g>
+  <rect x="38.6" y="8.6" width="52.8" height="52.8" rx="11.5"
+        fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="0.8"/>
+</svg>

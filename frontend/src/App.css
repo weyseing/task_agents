@@ -2,6 +2,9 @@
   display: grid;
   grid-template-columns: 268px 1fr;
   height: 100vh;
+  /* Use dynamic viewport units where supported so mobile browser chrome
+     (URL bar collapsing) doesn't cause layout jumps. */
+  height: 100dvh;
   background: var(--bg);
 }
 
@@ -14,5 +17,67 @@
   flex-direction: column;
   min-height: 0;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
+  position: relative;
+}
+
+/* Mobile hamburger button (hidden on desktop, fixed on mobile) */
+.mobile-menu-btn {
+  display: none;
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  background: transparent;
+  border: 0;
+  color: var(--ink-2);
+  cursor: pointer;
+  font-family: inherit;
+  z-index: 5;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.mobile-menu-btn:active {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.mobile-menu-btn svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* Backdrop behind the sidebar drawer on mobile */
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.42);
+  z-index: 40;
+  animation: backdrop-in 0.18s var(--ease) both;
+}
+
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ============== Mobile breakpoint ============== */
+@media (max-width: 760px) {
+  .app,
+  .app.sidebar-collapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .mobile-menu-btn {
+    display: inline-flex;
+  }
+
+  .sidebar-backdrop {
+    display: block;
+  }
 }

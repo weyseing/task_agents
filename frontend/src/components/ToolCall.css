@@ -504,3 +504,36 @@
   line-height: 1.3;
   color: #fff;
 }
+
+/* ============== Mobile ============== */
+@media (max-width: 760px) {
+  .toolcall summary {
+    padding: 6px 0 6px 10px;
+    gap: 7px;
+  }
+
+  .tc-meta {
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  /* On mobile, drop the arg preview (it's redundant with the tool name and
+     causes the summary row to wrap awkwardly). */
+  .tc-arg {
+    display: none;
+  }
+
+  .email-from {
+    max-width: 110px;
+    font-size: 12px;
+  }
+
+  .email-subject-text {
+    font-size: 12px;
+  }
+
+  .image-card {
+    flex: 0 0 110px;
+    height: 110px;
+  }
+}

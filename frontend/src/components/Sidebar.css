@@ -9,6 +9,12 @@
   overflow: hidden;
 }
 
+/* Mobile close button — hidden on desktop, shown when sidebar
+   is rendered as a drawer at the mobile breakpoint. */
+.sidebar-mobile-close {
+  display: none;
+}
+
 .sidebar.collapsed {
   padding: 16px 8px 12px;
   align-items: center;
@@ -461,6 +467,51 @@
 .sidebar-foot-menu-item:hover {
   background: rgba(15, 23, 42, 0.05);
   color: var(--ink);
+}
+
+/* ============== Mobile drawer ============== */
+@media (max-width: 760px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 84vw;
+    max-width: 320px;
+    z-index: 50;
+    transform: translateX(-100%);
+    transition: transform 0.22s var(--ease);
+    box-shadow: none;
+    /* Force the same layout on mobile even if `.sidebar.collapsed` was set
+       (the desktop collapse state is irrelevant in drawer mode). */
+    padding: 16px 14px 12px;
+    align-items: stretch;
+    gap: 16px;
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+  }
+
+  /* On mobile, the collapsed brand-toggle button isn't useful — sidebar
+     is either open as drawer or hidden. Show the full brand top bar. */
+  .sidebar.collapsed .brand-collapsed-toggle {
+    display: none;
+  }
+
+  .sidebar-mobile-close {
+    display: grid;
+  }
+
+  .sidebar-mobile-close svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .sidebar-desktop-collapse {
+    display: none;
+  }
 }
 
 /* ============== Conversation dropdown (rename/delete) ============== */

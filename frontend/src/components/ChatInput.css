@@ -214,3 +214,68 @@
   color: var(--ink-2);
   line-height: 1.4;
 }
+
+/* ============== Mobile ============== */
+@media (max-width: 760px) {
+  .composer {
+    padding: 6px 12px 14px;
+    /* Add safe-area inset so iOS home-indicator doesn't overlap the input. */
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+  }
+
+  .composer-inner {
+    border-radius: 18px;
+    padding: 10px 12px 8px;
+  }
+
+  .composer-input {
+    /* 16px prevents iOS Safari from zooming in on input focus. */
+    font-size: 16px;
+    line-height: 1.4;
+  }
+
+  .composer-toolbar {
+    gap: 4px;
+    padding-top: 6px;
+  }
+
+  /* Hide the "Web" label text + the "Enter to send" hint on small screens
+     to keep the toolbar from wrapping. The icons and key UI stay. */
+  .tool-btn span {
+    display: none;
+  }
+
+  .tool-btn {
+    width: 30px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .mode-group {
+    padding: 2px;
+    gap: 1px;
+  }
+
+  .mode-btn {
+    padding: 4px 8px;
+    font-size: 11.5px;
+  }
+
+  .composer-send {
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+  }
+
+  .composer-foot {
+    margin: 8px auto 0;
+    font-size: 10px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  .composer-foot .hint {
+    display: none;
+  }
+}

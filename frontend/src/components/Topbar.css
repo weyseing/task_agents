@@ -62,3 +62,21 @@
   white-space: normal;
   cursor: text;
 }
+
+/* ============== Mobile ============== */
+@media (max-width: 760px) {
+  .topbar-row {
+    height: 48px;
+    /* Reserve space on the left for the floating mobile menu button. */
+    padding: 0 12px 0 56px;
+    gap: 8px;
+  }
+
+  .title-line {
+    font-size: 13.5px;
+  }
+
+  .topbar-right {
+    gap: 0;
+  }
+}

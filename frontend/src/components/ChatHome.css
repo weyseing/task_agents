@@ -91,3 +91,46 @@
   color: var(--muted-2);
   flex-shrink: 0;
 }
+
+/* ============== Mobile ============== */
+@media (max-width: 760px) {
+  .chat-home {
+    padding: 16px 16px 12px;
+    gap: 20px;
+    /* Mobile menu button sits at top-left; nudge content down. */
+    padding-top: 56px;
+  }
+
+  .chat-home-mark {
+    width: 56px;
+    height: 56px;
+  }
+
+  .chat-home-mark .msg-mark {
+    width: 56px !important;
+    height: 56px !important;
+  }
+
+  .chat-home-title {
+    font-size: 22px;
+    line-height: 1.15;
+  }
+
+  .chat-home-chips {
+    gap: 6px;
+  }
+
+  .chip {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+
+  .chat-home-suggestions {
+    max-width: 100%;
+  }
+
+  .suggestion {
+    padding: 11px 12px;
+    font-size: 13px;
+  }
+}
