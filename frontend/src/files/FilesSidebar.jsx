@@ -1,4 +1,4 @@
-import AgentLogo from "../components/AgentLogo";
+import { useEffect, useRef, useState } from "react";
 import IconBtn from "./IconBtn";
 import { FileChip } from "./FileChip";
 import {
@@ -23,14 +23,8 @@ export default function FilesSidebar({
   onOpen,
   onDelete,
   onNavChat,
+  onLogout,
 }) {
-  const displayName = user?.name || user?.email || "You";
-  const initials = (() => {
-    const src = user?.name || user?.email || "U";
-    const parts = src.split(/\s+/).filter(Boolean);
-    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-    return src.slice(0, 2).toUpperCase();
-  })();
 
   return (
     <aside
@@ -43,14 +37,24 @@ export default function FilesSidebar({
         padding: "16px 14px 12px",
         display: "flex",
         flexDirection: "column",
-        gap: 14,
+        gap: 16,
         minHeight: 0,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <AgentLogo size={30} />
-          <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.05 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          <img
+            src="/favicon.svg"
+            alt="Lumen"
+            style={{
+              width: 28,
+              height: 28,
+              flex: "0 0 28px",
+              borderRadius: 7,
+              objectFit: "cover",
+            }}
+          />
+          <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.05, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C_INK, letterSpacing: "-0.01em" }}>
               Lumen
             </div>
@@ -155,22 +159,66 @@ export default function FilesSidebar({
         </div>
       </div>
 
-      <div
-        style={{
-          marginTop: "auto",
-          padding: "10px 8px 6px",
-          borderTop: `1px solid ${C_LINE}`,
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-        }}
-      >
+      {user && <SidebarFoot user={user} onLogout={onLogout} />}
+    </aside>
+  );
+}
+
+function SidebarFoot({ user, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const name = user?.name || user?.email || "You";
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((s) => s[0].toUpperCase())
+    .join("");
+  const sub = user?.email && user?.name ? user.email : "Internal access";
+
+  return (
+    <div
+      ref={menuRef}
+      style={{
+        marginTop: "auto",
+        padding: "10px 8px 6px",
+        borderTop: `1px solid ${C_LINE}`,
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        position: "relative",
+      }}
+    >
+      {user?.picture ? (
+        <img
+          src={user.picture}
+          alt=""
+          referrerPolicy="no-referrer"
+          style={{
+            width: 26,
+            height: 26,
+            borderRadius: "50%",
+            flex: "0 0 26px",
+            objectFit: "cover",
+          }}
+        />
+      ) : (
         <div
           style={{
             width: 26,
             height: 26,
             borderRadius: "50%",
-            flexShrink: 0,
+            flex: "0 0 26px",
             background: "linear-gradient(135deg, #1B263B, #334155)",
             display: "grid",
             placeItems: "center",
@@ -179,26 +227,86 @@ export default function FilesSidebar({
             fontWeight: 600,
           }}
         >
-          {initials}
+          {initials || "?"}
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 12.5, fontWeight: 500, color: C_INK, lineHeight: 1.2 }}>
-            {displayName}
-          </div>
-          <div style={{ fontSize: 10.5, color: C_MUTED, lineHeight: 1.2 }}>
-            {user?.email || ""}
-          </div>
+      )}
+      <div style={{ flex: 1, minWidth: 0, lineHeight: 1.2 }}>
+        <div
+          style={{
+            fontSize: 12.5,
+            fontWeight: 500,
+            color: C_INK,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {name}
         </div>
-        <IconBtn title="Settings">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" />
-          </svg>
-        </IconBtn>
+        <div
+          style={{
+            fontSize: 10.5,
+            color: C_MUTED,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {sub}
+        </div>
       </div>
-    </aside>
+      <IconBtn title="Settings" onClick={() => setOpen((o) => !o)}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" />
+        </svg>
+      </IconBtn>
+      {open && (
+        <div
+          role="menu"
+          style={{
+            position: "absolute",
+            bottom: "calc(100% + 4px)",
+            right: 8,
+            background: "#fff",
+            border: `1px solid ${C_LINE}`,
+            borderRadius: 10,
+            boxShadow: "0 8px 28px rgba(15,23,42,0.08)",
+            padding: 4,
+            zIndex: 20,
+            minWidth: 140,
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              onLogout?.();
+            }}
+            style={{
+              display: "block",
+              width: "100%",
+              padding: "8px 10px",
+              background: "transparent",
+              border: 0,
+              borderRadius: 6,
+              fontFamily: "inherit",
+              fontSize: 12.5,
+              color: C_INK2,
+              textAlign: "left",
+              cursor: "pointer",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(15,23,42,0.05)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+          >
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
+
 
 function NavItem({ glyph, kbd, active, children, onClick }) {
   return (
@@ -328,8 +436,6 @@ function TreeNode({ node, depth, isRoot, activeId, expanded, onToggle, onOpen, o
         title="Delete"
         className="row-del"
         style={{
-          opacity: 0,
-          transition: `opacity .12s ${C_EASE}`,
           width: 20,
           height: 20,
           border: "none",
@@ -339,9 +445,8 @@ function TreeNode({ node, depth, isRoot, activeId, expanded, onToggle, onOpen, o
           borderRadius: 5,
           display: "grid",
           placeItems: "center",
+          transition: `opacity .12s ${C_EASE}, background .12s ${C_EASE}`,
         }}
-        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(15,23,42,0.06)")}
-        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
       >
         <TrashGlyph />
       </button>

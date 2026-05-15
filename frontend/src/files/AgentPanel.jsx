@@ -39,7 +39,17 @@ export default function AgentPanel({ file, mobileOpen, onMobileClose, onOpenFull
           background: C_BG,
         }}
       >
-        <AgentLogo size={22} />
+        <img
+          src="/favicon.svg"
+          alt="Lumen"
+          style={{
+            width: 22,
+            height: 22,
+            flex: "0 0 22px",
+            borderRadius: 6,
+            objectFit: "cover",
+          }}
+        />
         <div style={{ flex: 1, display: "flex", flexDirection: "column", lineHeight: 1.1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: C_INK, letterSpacing: "-0.005em" }}>
             Agent

@@ -10,6 +10,18 @@
   display: none;
 }
 
+/* Tree row delete button: hidden until row hover (desktop) — no hover on
+   touch, so we force-show below the breakpoint. */
+.row-del {
+  opacity: 0;
+}
+.tree-row:hover .row-del {
+  opacity: 1;
+}
+.row-del:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
 .files-backdrop {
   display: none;
   position: fixed;
@@ -172,6 +184,11 @@
   /* Agent composer doesn't need to be wider than the drawer */
   .files-agent-panel .composer {
     padding: 8px 12px 16px !important;
+  }
+
+  /* No hover on touch — show delete buttons by default. */
+  .row-del {
+    opacity: 1;
   }
 }
 

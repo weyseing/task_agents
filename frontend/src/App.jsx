@@ -10,14 +10,15 @@ import { apiFetch } from "./api";
 import "./App.css";
 
 // URL helpers: chat URL pattern is `/c/<conversation_id>`; `/` means new chat.
-// `/files` renders the Files page.
+// `/files` renders the Files page; `/files/<file_id>` opens that file.
 const CONV_URL_RE = /^\/c\/([a-f0-9-]+)\/?$/i;
 const FILES_URL = "/files";
+const FILES_URL_RE = /^\/files(?:\/([a-f0-9-]+))?\/?$/i;
 const getConvIdFromUrl = () => {
   const m = window.location.pathname.match(CONV_URL_RE);
   return m ? m[1] : null;
 };
-const isFilesUrl = () => window.location.pathname.replace(/\/$/, "") === FILES_URL;
+const isFilesUrl = () => FILES_URL_RE.test(window.location.pathname);
 const pushConvUrl = (id) => {
   const target = id ? `/c/${id}` : "/";
   if (window.location.pathname !== target) {
@@ -25,7 +26,7 @@ const pushConvUrl = (id) => {
   }
 };
 const pushFilesUrl = () => {
-  if (window.location.pathname !== FILES_URL) {
+  if (!FILES_URL_RE.test(window.location.pathname)) {
     window.history.pushState({ files: true }, "", FILES_URL);
   }
 };
@@ -313,7 +314,7 @@ export default function App() {
   if (!user) return <LoginPage onSignedIn={setUser} />;
 
   if (route === "files") {
-    return <FilesPage user={user} onNavChat={goToChat} />;
+    return <FilesPage user={user} onNavChat={goToChat} onLogout={handleLogout} />;
   }
 
   const activeConversation = conversations.find((c) => c.id === conversationId);

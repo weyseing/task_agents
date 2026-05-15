@@ -10,6 +10,22 @@ export default function SheetEditor({ file, onChange }) {
     onChange({ columns, rows: nextRows });
   };
 
+  const updateHeader = (i, v) => {
+    const next = columns.map((c, ci) => (ci === i ? v : c));
+    onChange({ columns: next, rows });
+  };
+
+  const addRow = () => {
+    onChange({ columns, rows: [...rows, Array(columns.length).fill("")] });
+  };
+
+  const addColumn = () => {
+    onChange({
+      columns: [...columns, ""],
+      rows: rows.map((r) => [...r, ""]),
+    });
+  };
+
   const colLetter = (i) => String.fromCharCode(65 + i);
 
   return (
@@ -67,14 +83,23 @@ export default function SheetEditor({ file, onChange }) {
                   {colLetter(i)}
                 </th>
               ))}
+              <th style={addColHeaderCell()} title="Add column" onClick={addColumn}>
+                +
+              </th>
             </tr>
             <tr>
               <th style={rowHeaderCell()}>1</th>
               {columns.map((c, i) => (
-                <th key={i} style={headerCell(C_INK2, C_LINE)}>
-                  {c}
+                <th key={i} style={headerCell(C_LINE)}>
+                  <input
+                    value={c}
+                    onChange={(e) => updateHeader(i, e.target.value)}
+                    placeholder={colLetter(i)}
+                    style={headerInputStyle(C_INK2)}
+                  />
                 </th>
               ))}
+              <th style={addColCell()} onClick={addColumn} title="Add column" />
             </tr>
           </thead>
           <tbody>
@@ -100,8 +125,20 @@ export default function SheetEditor({ file, onChange }) {
                     />
                   </td>
                 ))}
+                <td style={addColCell()} onClick={addColumn} title="Add column" />
               </tr>
             ))}
+            <tr>
+              <td style={rowHeaderCell()}>{rows.length + 2}</td>
+              <td
+                colSpan={columns.length + 1}
+                style={addRowCell()}
+                onClick={addRow}
+                title="Add row"
+              >
+                <span style={addRowLabelStyle()}>+ Add row</span>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -135,14 +172,22 @@ const rowHeaderCell = () => ({
   color: C_MUTED,
   textAlign: "center",
 });
-const headerCell = (ink, line) => ({
+const headerCell = (line) => ({
   height: 34,
-  padding: "0 10px",
+  padding: 0,
   border: `1px solid ${line}`,
   background: "#FBFCFD",
-  textAlign: "left",
-  fontWeight: 500,
+});
+const headerInputStyle = (ink) => ({
+  width: 140,
+  height: 32,
+  padding: "0 10px",
+  border: "none",
+  outline: "none",
+  background: "transparent",
+  font: "inherit",
   color: ink,
+  fontWeight: 500,
   fontSize: 12.5,
   letterSpacing: "0.02em",
   textTransform: "uppercase",
@@ -151,4 +196,38 @@ const dataCell = (last) => ({
   border: `1px solid ${C_LINE}`,
   background: last ? "#FBFCFD" : "#fff",
   fontWeight: last ? 500 : 400,
+});
+// Subtle "+" affordance at the right edge — header version (compact).
+const addColHeaderCell = () => ({
+  width: 32,
+  background: "#F1F4F9",
+  border: `1px solid ${C_LINE}`,
+  fontFamily: "ui-monospace, monospace",
+  fontSize: 13,
+  fontWeight: 500,
+  color: C_MUTED2,
+  textAlign: "center",
+  cursor: "pointer",
+  userSelect: "none",
+});
+// "+" column extension for body rows — empty cell, clicking adds a column.
+const addColCell = () => ({
+  width: 32,
+  border: `1px dashed ${C_LINE}`,
+  background: "#FBFCFD",
+  cursor: "pointer",
+});
+// Bottom "add row" full-width strip.
+const addRowCell = () => ({
+  height: 30,
+  border: `1px dashed ${C_LINE}`,
+  background: "#FBFCFD",
+  cursor: "pointer",
+  textAlign: "center",
+});
+const addRowLabelStyle = () => ({
+  fontFamily: '"Sora", system-ui',
+  fontSize: 12,
+  color: C_MUTED2,
+  fontWeight: 500,
 });

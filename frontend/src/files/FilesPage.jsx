@@ -1,22 +1,51 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import FilesSidebar from "./FilesSidebar";
 import FilesTopBar from "./FilesTopBar";
 import TabStrip from "./TabStrip";
 import EditorFrame from "./EditorFrame";
 import AgentPanel from "./AgentPanel";
 import ConfirmDialog from "./ConfirmDialog";
-import { INITIAL_FS, fsClone, fsDelete, fsFind, fsUpdate } from "./fsData";
+import {
+  loadTree,
+  loadContent,
+  saveContent,
+  deleteFile,
+  fsFind,
+  fsFirstFile,
+} from "./fsData";
 import { C_BG, C_INK, C_PAGE } from "./tokens";
 import "./FilesPage.css";
 
-export default function FilesPage({ user, onNavChat }) {
-  const [fs, setFs] = useState(() => fsClone(INITIAL_FS));
+const EMPTY_TREE = { id: "root", name: "My Files", kind: "folder", children: [] };
+
+// `/files/<file-id>` — match the pattern used in App.jsx
+const FILE_URL_RE = /^\/files\/([a-f0-9-]+)\/?$/i;
+const fileIdFromUrl = () => {
+  const m = window.location.pathname.match(FILE_URL_RE);
+  return m ? m[1] : null;
+};
+const syncUrl = (fileId) => {
+  const target = fileId ? `/files/${fileId}` : "/files";
+  if (window.location.pathname !== target) {
+    window.history.replaceState({ files: true, fileId }, "", target);
+  }
+};
+
+export default function FilesPage({ user, onNavChat, onLogout }) {
+  const [fs, setFs] = useState(EMPTY_TREE);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [tabs, setTabs] = useState([]);
   const [activeId, setActiveId] = useState(null);
-  const [expanded, setExpanded] = useState(new Set(["d-proj", "d-policy", "d-data"]));
+  const [expanded, setExpanded] = useState(new Set());
   const [confirm, setConfirm] = useState(null);
   const [mobileSidebar, setMobileSidebar] = useState(false);
   const [mobileAgent, setMobileAgent] = useState(false);
+
+  // Capture the URL's file ID at component init, BEFORE any effect runs.
+  // The syncUrl effect would otherwise fire first (activeId=null) and wipe
+  // the URL before the tree-load effect gets to read it.
+  const initialUrlFileId = useRef(fileIdFromUrl());
 
   const activeTab = tabs.find((t) => t.id === activeId) || null;
 
@@ -28,22 +57,95 @@ export default function FilesPage({ user, onNavChat }) {
     return s;
   }, [tabs]);
 
+  // Initial tree load. Open the file from the URL if present; otherwise
+  // open the first file in the tree (first-time visit).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const tree = await loadTree();
+        if (cancelled) return;
+        setFs(tree);
+        // Expand all folders on first load so the user sees their files.
+        const allFolderIds = new Set();
+        const collect = (n) => {
+          if (n.kind === "folder" && n.id !== "root") allFolderIds.add(n.id);
+          (n.children || []).forEach(collect);
+        };
+        collect(tree);
+        setExpanded(allFolderIds);
+
+        const urlId = initialUrlFileId.current;
+        const urlNode = urlId ? fsFind(tree, urlId) : null;
+        if (urlNode && urlNode.kind === "file") {
+          await openFile(urlNode);
+        } else {
+          // URL had no id (or id is stale) — fall back to the first file.
+          const first = fsFirstFile(tree);
+          if (first) await openFile(first);
+        }
+      } catch (e) {
+        if (!cancelled) setError(e.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep the URL in sync with the active tab.
+  useEffect(() => {
+    syncUrl(activeId);
+  }, [activeId]);
+
+  // Browser back/forward landed us on a different /files/<id> — react.
+  useEffect(() => {
+    const onPop = () => {
+      const urlId = fileIdFromUrl();
+      if (urlId && urlId !== activeId) {
+        const node = fsFind(fs, urlId);
+        if (node) openFile(node);
+      } else if (!urlId && activeId) {
+        setActiveId(null);
+      }
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, fs]);
+
+  async function openFile(node) {
+    if (!node || node.kind !== "file") return;
+    if (tabs.some((t) => t.id === node.id)) {
+      setActiveId(node.id);
+      return;
+    }
+    let content = "";
+    try {
+      content = await loadContent(node.id);
+    } catch (e) {
+      setError(`Failed to load ${node.name}: ${e.message}`);
+      return;
+    }
+    setTabs((prev) => [
+      ...prev,
+      {
+        id: node.id,
+        name: node.name,
+        type: node.type,
+        content,
+        savedContent: content,
+      },
+    ]);
+    setActiveId(node.id);
+  }
+
   const handleOpen = (id) => {
     const node = fsFind(fs, id);
-    if (!node || node.kind !== "file") return;
-    if (!tabs.some((t) => t.id === id)) {
-      setTabs((prev) => [
-        ...prev,
-        {
-          id,
-          name: node.name,
-          type: node.type,
-          content: node.content,
-          savedContent: node.content,
-        },
-      ]);
-    }
-    setActiveId(id);
+    if (node) openFile(node);
   };
 
   const handleClose = (id) => {
@@ -63,12 +165,18 @@ export default function FilesPage({ user, onNavChat }) {
     );
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!activeTab || !dirty.has(activeTab.id)) return;
-    setFs((prev) => fsUpdate(prev, activeTab.id, activeTab.content));
-    setTabs((prev) =>
-      prev.map((t) => (t.id === activeTab.id ? { ...t, savedContent: t.content } : t))
-    );
+    const id = activeTab.id;
+    const content = activeTab.content;
+    try {
+      await saveContent(id, content);
+      setTabs((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, savedContent: content } : t))
+      );
+    } catch (e) {
+      setError(`Save failed: ${e.message}`);
+    }
   };
 
   useEffect(() => {
@@ -84,12 +192,19 @@ export default function FilesPage({ user, onNavChat }) {
 
   const handleDelete = (id, name) => setConfirm({ id, name });
 
-  const performDelete = () => {
+  const performDelete = async () => {
     if (!confirm) return;
     const id = confirm.id;
-    setFs((prev) => fsDelete(prev, id));
-    setTabs((prev) => prev.filter((t) => t.id !== id));
-    if (activeId === id) setActiveId(null);
+    try {
+      await deleteFile(id);
+      setTabs((prev) => prev.filter((t) => t.id !== id));
+      if (activeId === id) setActiveId(null);
+      // Refetch tree to reflect deletion (handles folder cascades).
+      const tree = await loadTree();
+      setFs(tree);
+    } catch (e) {
+      setError(`Delete failed: ${e.message}`);
+    }
     setConfirm(null);
   };
 
@@ -102,13 +217,6 @@ export default function FilesPage({ user, onNavChat }) {
     });
   };
 
-  // Default open README on first mount.
-  useEffect(() => {
-    if (!activeId && tabs.length === 0) handleOpen("f-readme");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // When opening a file from the sidebar drawer on mobile, close the drawer.
   const handleOpenAndCloseDrawer = (id) => {
     handleOpen(id);
     setMobileSidebar(false);
@@ -140,6 +248,7 @@ export default function FilesPage({ user, onNavChat }) {
         onOpen={handleOpenAndCloseDrawer}
         onDelete={handleDelete}
         onNavChat={onNavChat}
+        onLogout={onLogout}
       />
       <div
         style={{
@@ -167,11 +276,25 @@ export default function FilesPage({ user, onNavChat }) {
             onClose={handleClose}
           />
         )}
-        <EditorFrame
-          file={activeTab}
-          onChange={handleChange}
-          dirty={activeTab ? dirty.has(activeTab.id) : false}
-        />
+        {loading ? (
+          <div style={{ flex: 1, display: "grid", placeItems: "center", color: "#9aa3b2" }}>
+            Loading…
+          </div>
+        ) : error ? (
+          <div style={{ flex: 1, display: "grid", placeItems: "center", color: "#b91c1c", padding: 24, textAlign: "center" }}>
+            {error}
+          </div>
+        ) : !activeTab && (fs.children || []).length === 0 ? (
+          <div style={{ flex: 1, display: "grid", placeItems: "center", color: "#9aa3b2" }}>
+            No files yet.
+          </div>
+        ) : (
+          <EditorFrame
+            file={activeTab}
+            onChange={handleChange}
+            dirty={activeTab ? dirty.has(activeTab.id) : false}
+          />
+        )}
       </div>
       <AgentPanel
         file={activeTab}

@@ -13,16 +13,26 @@ from auth import current_user_id
 from db import (
     init_db,
     close_db,
+    collect_descendant_r2_keys,
     conversation_belongs_to,
     create_conversation,
+    create_file_row,
+    delete_conversation,
+    delete_file_row,
+    file_belongs_to,
     get_conversations,
     get_conversation_messages,
+    get_file,
     get_user_by_id,
+    list_user_files,
+    rename_file_row,
     save_message,
+    set_file_r2_key_and_size,
     update_conversation_title,
-    delete_conversation,
+    update_file_size,
 )
 from sso import router as sso_router
+import storage
 
 
 @asynccontextmanager
@@ -258,6 +268,157 @@ async def chat(request: Request, user_id: str = Depends(current_user_id)):
         )
 
     return EventSourceResponse(event_stream())
+
+
+# --- Files ---
+
+
+def _build_tree(rows: list[dict]) -> dict:
+    """Build a nested tree from a flat list of file/folder rows."""
+    by_parent: dict[str | None, list[dict]] = {}
+    nodes: dict[str, dict] = {}
+    for r in rows:
+        node = {
+            "id": r["id"],
+            "name": r["name"],
+            "kind": r["kind"],
+            "type": r["type"],
+            "parent_id": r["parent_id"],
+        }
+        if r["kind"] == "folder":
+            node["children"] = []
+        nodes[r["id"]] = node
+        by_parent.setdefault(r["parent_id"], []).append(node)
+
+    for parent_id, children in by_parent.items():
+        if parent_id and parent_id in nodes:
+            nodes[parent_id]["children"] = children
+
+    return by_parent.get(None, [])
+
+
+@app.get("/api/files")
+async def list_files(user_id: str = Depends(current_user_id)):
+    """Return the user's file tree, wrapped in a synthetic root."""
+    rows = await list_user_files(user_id)
+    children = _build_tree(rows)
+    return JSONResponse(
+        {
+            "id": "root",
+            "name": "My Files",
+            "kind": "folder",
+            "children": children,
+        }
+    )
+
+
+@app.post("/api/files")
+async def create_file(
+    request: Request, user_id: str = Depends(current_user_id)
+):
+    """Create a file or folder. For files, optional `content` (any JSON) is
+    written to R2; if omitted, an empty string is stored."""
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    kind = body.get("kind")
+    file_type = body.get("type")
+    parent_id = body.get("parent_id")
+    content = body.get("content", "")
+
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    if kind not in ("file", "folder"):
+        raise HTTPException(status_code=400, detail="kind must be 'file' or 'folder'")
+    if parent_id and not await file_belongs_to(parent_id, user_id):
+        raise HTTPException(status_code=404, detail="parent folder not found")
+
+    if kind == "folder":
+        row = await create_file_row(
+            user_id, name=name, kind="folder", parent_id=parent_id
+        )
+        return JSONResponse(row)
+
+    # File: write content to R2 first, then create the DB row.
+    # We don't know the file_id yet, so create the row first with a placeholder,
+    # then update r2_key and write content. Simpler: insert row, then write to R2.
+    row = await create_file_row(
+        user_id, name=name, kind="file", type=file_type, parent_id=parent_id
+    )
+    key = storage.object_key(user_id, row["id"])
+    payload = json.dumps(content).encode("utf-8")
+    await storage.put(key, payload, content_type="application/json")
+    await set_file_r2_key_and_size(row["id"], user_id, key, len(payload))
+    row["r2_key"] = key
+    row["size"] = len(payload)
+    return JSONResponse(row)
+
+
+@app.get("/api/files/{file_id}/content")
+async def read_file_content(
+    file_id: str, user_id: str = Depends(current_user_id)
+):
+    row = await get_file(file_id, user_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="File not found")
+    if row["kind"] != "file":
+        raise HTTPException(status_code=400, detail="Not a file")
+    if not row["r2_key"]:
+        return JSONResponse({"content": ""})
+    raw = await storage.get(row["r2_key"])
+    try:
+        content = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        content = raw.decode("utf-8", errors="replace")
+    return JSONResponse({"content": content})
+
+
+@app.put("/api/files/{file_id}/content")
+async def write_file_content(
+    file_id: str, request: Request, user_id: str = Depends(current_user_id)
+):
+    row = await get_file(file_id, user_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="File not found")
+    if row["kind"] != "file":
+        raise HTTPException(status_code=400, detail="Not a file")
+
+    body = await request.json()
+    content = body.get("content", "")
+    payload = json.dumps(content).encode("utf-8")
+
+    key = row["r2_key"] or storage.object_key(user_id, file_id)
+    await storage.put(key, payload, content_type="application/json")
+    if row["r2_key"]:
+        await update_file_size(file_id, user_id, len(payload))
+    else:
+        await set_file_r2_key_and_size(file_id, user_id, key, len(payload))
+    return JSONResponse({"ok": True, "size": len(payload)})
+
+
+@app.patch("/api/files/{file_id}")
+async def rename_file(
+    file_id: str, request: Request, user_id: str = Depends(current_user_id)
+):
+    if not await file_belongs_to(file_id, user_id):
+        raise HTTPException(status_code=404, detail="File not found")
+    body = await request.json()
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name required")
+    await rename_file_row(file_id, user_id, name)
+    return JSONResponse({"ok": True})
+
+
+@app.delete("/api/files/{file_id}")
+async def remove_file(
+    file_id: str, user_id: str = Depends(current_user_id)
+):
+    if not await file_belongs_to(file_id, user_id):
+        raise HTTPException(status_code=404, detail="File not found")
+    keys = await collect_descendant_r2_keys(file_id, user_id)
+    await delete_file_row(file_id, user_id)
+    await storage.delete_many(keys)
+    return JSONResponse({"ok": True, "r2_objects_deleted": len(keys)})
 
 
 # --- Gmail send (Send button on draft widget) ---

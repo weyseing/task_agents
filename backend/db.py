@@ -53,9 +53,22 @@ async def init_db():
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
             );
+            CREATE TABLE IF NOT EXISTS files (
+                id UUID PRIMARY KEY,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                parent_id UUID REFERENCES files(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                kind TEXT NOT NULL CHECK (kind IN ('file', 'folder')),
+                type TEXT,
+                size BIGINT NOT NULL DEFAULT 0,
+                r2_key TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
             CREATE INDEX IF NOT EXISTS idx_messages_conversation
                 ON messages(conversation_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_files_user ON files(user_id, parent_id);
         """)
         # Migrations for existing tables — must run before indexes that
         # reference the migrated columns.
@@ -341,4 +354,158 @@ async def delete_gmail_creds(user_id: str):
         await conn.execute(
             "DELETE FROM gmail_credentials WHERE user_id = $1",
             user_id,
+        )
+
+
+# --- Files ---
+
+
+def _file_row_to_dict(r) -> dict:
+    return {
+        "id": str(r["id"]),
+        "user_id": str(r["user_id"]),
+        "parent_id": str(r["parent_id"]) if r["parent_id"] else None,
+        "name": r["name"],
+        "kind": r["kind"],
+        "type": r["type"],
+        "size": r["size"],
+        "r2_key": r["r2_key"],
+        "created_at": r["created_at"].isoformat(),
+        "updated_at": r["updated_at"].isoformat(),
+    }
+
+
+async def list_user_files(user_id: str) -> list[dict]:
+    """All files+folders owned by the user, in a stable order
+    (folders first, then by name)."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, user_id, parent_id, name, kind, type, size, r2_key,
+                   created_at, updated_at
+            FROM files
+            WHERE user_id = $1
+            ORDER BY (kind = 'folder') DESC, name
+            """,
+            uuid.UUID(user_id),
+        )
+    return [_file_row_to_dict(r) for r in rows]
+
+
+async def get_file(file_id: str, user_id: str) -> dict | None:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, user_id, parent_id, name, kind, type, size, r2_key,
+                   created_at, updated_at
+            FROM files WHERE id = $1 AND user_id = $2
+            """,
+            uuid.UUID(file_id),
+            uuid.UUID(user_id),
+        )
+    return _file_row_to_dict(row) if row else None
+
+
+async def create_file_row(
+    user_id: str,
+    name: str,
+    kind: str,
+    type: str | None = None,
+    parent_id: str | None = None,
+    r2_key: str | None = None,
+) -> dict:
+    file_id = str(uuid.uuid4())
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO files (id, user_id, parent_id, name, kind, type, r2_key)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING id, user_id, parent_id, name, kind, type, size, r2_key,
+                      created_at, updated_at
+            """,
+            uuid.UUID(file_id),
+            uuid.UUID(user_id),
+            uuid.UUID(parent_id) if parent_id else None,
+            name,
+            kind,
+            type,
+            r2_key,
+        )
+    return _file_row_to_dict(row)
+
+
+async def rename_file_row(file_id: str, user_id: str, name: str):
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE files SET name = $1, updated_at = now() "
+            "WHERE id = $2 AND user_id = $3",
+            name,
+            uuid.UUID(file_id),
+            uuid.UUID(user_id),
+        )
+
+
+async def update_file_size(file_id: str, user_id: str, size: int):
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE files SET size = $1, updated_at = now() "
+            "WHERE id = $2 AND user_id = $3",
+            size,
+            uuid.UUID(file_id),
+            uuid.UUID(user_id),
+        )
+
+
+async def set_file_r2_key_and_size(
+    file_id: str, user_id: str, r2_key: str, size: int
+):
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE files SET r2_key = $1, size = $2, updated_at = now() "
+            "WHERE id = $3 AND user_id = $4",
+            r2_key,
+            size,
+            uuid.UUID(file_id),
+            uuid.UUID(user_id),
+        )
+
+
+async def file_belongs_to(file_id: str, user_id: str) -> bool:
+    async with pool.acquire() as conn:
+        owner = await conn.fetchval(
+            "SELECT user_id FROM files WHERE id = $1",
+            uuid.UUID(file_id),
+        )
+    return owner is not None and str(owner) == user_id
+
+
+async def collect_descendant_r2_keys(file_id: str, user_id: str) -> list[str]:
+    """Return R2 keys of this file and all descendants (for folder delete).
+    Filters by user_id at every step — defense in depth."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            WITH RECURSIVE tree AS (
+                SELECT id, r2_key FROM files
+                WHERE id = $1 AND user_id = $2
+                UNION ALL
+                SELECT f.id, f.r2_key
+                FROM files f JOIN tree t ON f.parent_id = t.id
+                WHERE f.user_id = $2
+            )
+            SELECT r2_key FROM tree WHERE r2_key IS NOT NULL
+            """,
+            uuid.UUID(file_id),
+            uuid.UUID(user_id),
+        )
+    return [r["r2_key"] for r in rows]
+
+
+async def delete_file_row(file_id: str, user_id: str):
+    """Delete a file or folder (ON DELETE CASCADE removes children rows)."""
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM files WHERE id = $1 AND user_id = $2",
+            uuid.UUID(file_id),
+            uuid.UUID(user_id),
         )
