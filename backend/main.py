@@ -1,8 +1,9 @@
 import json
+import os
 from contextlib import asynccontextmanager
 from datetime import date
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
@@ -12,14 +13,16 @@ from auth import current_user_id
 from db import (
     init_db,
     close_db,
+    conversation_belongs_to,
     create_conversation,
     get_conversations,
     get_conversation_messages,
+    get_user_by_id,
     save_message,
     update_conversation_title,
     delete_conversation,
 )
-from gmail_oauth import router as gmail_oauth_router
+from sso import router as sso_router
 
 
 @asynccontextmanager
@@ -31,18 +34,52 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Task Agents API", lifespan=lifespan)
 
+# Cookies require explicit origins + allow_credentials=True (wildcard rejected).
+# FRONTEND_ORIGIN is a comma-separated list of allowed origins.
+_origins_env = os.getenv("FRONTEND_ORIGIN", "http://localhost:8891")
+ALLOWED_ORIGINS = [o.strip() for o in _origins_env.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(gmail_oauth_router)
+app.include_router(sso_router)
 
 
-def get_system_prompt() -> str:
+# Security headers. CSP here protects HTML responses the backend serves
+# (currently only the OAuth callback popup). The React app served by
+# Cloudflare Pages has its own CSP in `frontend/public/_headers`.
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+
+    # The OAuth callback returns inline-styled HTML with an inline window.close
+    # script — allow inline only on that one path. Everything else is strict.
+    if request.url.path == "/api/gmail/oauth/callback":
+        csp = (
+            "default-src 'none'; "
+            "style-src 'unsafe-inline'; "
+            "script-src 'unsafe-inline'; "
+            "frame-ancestors 'none'"
+        )
+    else:
+        csp = "default-src 'none'; frame-ancestors 'none'"
+
+    response.headers["Content-Security-Policy"] = csp
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
+
+def get_system_prompt(user: dict) -> str:
     today = date.today().strftime("%Y/%m/%d")
+    name = user.get("name") or user.get("email") or "the user"
+    email = user.get("email") or ""
     return f"""You are Task Agents, a professional AI assistant with access to tools.
 
 Rules:
@@ -53,7 +90,7 @@ Rules:
 - When explaining, prioritize clarity over length.
 - If unsure, say so rather than guessing.
 
-The user's name is Jeremy Heng, email is hengweyseing531@gmail.com.
+The user's name is {name}, email is {email}.
 Today's date is {today}.
 
 Tool guidelines:
@@ -76,39 +113,47 @@ def health():
 
 
 @app.get("/api/conversations")
-async def list_conversations():
-    conversations = await get_conversations()
+async def list_conversations(user_id: str = Depends(current_user_id)):
+    conversations = await get_conversations(user_id)
     return JSONResponse(conversations)
 
 
 @app.get("/api/conversations/{conversation_id}")
-async def get_conversation(conversation_id: str):
-    messages = await get_conversation_messages(conversation_id)
+async def get_conversation(
+    conversation_id: str, user_id: str = Depends(current_user_id)
+):
+    messages = await get_conversation_messages(conversation_id, user_id)
     return JSONResponse(messages)
 
 
 @app.patch("/api/conversations/{conversation_id}")
-async def rename_conversation(conversation_id: str, request: Request):
+async def rename_conversation(
+    conversation_id: str,
+    request: Request,
+    user_id: str = Depends(current_user_id),
+):
     body = await request.json()
     title = body.get("title", "").strip()
     if not title:
         return JSONResponse({"error": "title required"}, status_code=400)
-    await update_conversation_title(conversation_id, title)
+    await update_conversation_title(conversation_id, user_id, title)
     return JSONResponse({"ok": True})
 
 
 @app.delete("/api/conversations/{conversation_id}")
-async def remove_conversation(conversation_id: str):
-    await delete_conversation(conversation_id)
+async def remove_conversation(
+    conversation_id: str, user_id: str = Depends(current_user_id)
+):
+    await delete_conversation(conversation_id, user_id)
     return JSONResponse({"ok": True})
 
 
 # --- Chat ---
 
 
-def build_llm_messages(history: list[dict]) -> list[dict]:
+def build_llm_messages(history: list[dict], user: dict) -> list[dict]:
     """Convert DB history to the LLM message format, expanding tool_calls."""
-    messages: list[dict] = [{"role": "system", "content": get_system_prompt()}]
+    messages: list[dict] = [{"role": "system", "content": get_system_prompt(user)}]
 
     for msg in history:
         if msg["role"] == "user":
@@ -149,26 +194,32 @@ def build_llm_messages(history: list[dict]) -> list[dict]:
 
 
 @app.post("/api/chat")
-async def chat(request: Request):
+async def chat(request: Request, user_id: str = Depends(current_user_id)):
     body = await request.json()
     conversation_id = body.get("conversation_id")
     user_content = body.get("content", "")
-    user_id = current_user_id(request)
 
-    # Create new conversation if needed
+    user = await get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    # Create new conversation if needed; otherwise verify ownership
     is_new = conversation_id is None
     if is_new:
         title = user_content[:80].strip() or "New chat"
-        conversation_id = await create_conversation(title)
+        conversation_id = await create_conversation(user_id, title)
+    else:
+        if not await conversation_belongs_to(conversation_id, user_id):
+            raise HTTPException(status_code=404, detail="Conversation not found")
 
     # Save the user message
     await save_message(conversation_id, "user", user_content)
 
     # Load recent history and build LLM messages
     MAX_HISTORY = 20
-    history = await get_conversation_messages(conversation_id)
+    history = await get_conversation_messages(conversation_id, user_id)
     recent = history[-MAX_HISTORY:]
-    messages = build_llm_messages(recent)
+    messages = build_llm_messages(recent, user)
 
     async def event_stream():
         yield json.dumps({"conversation_id": conversation_id, "is_new": is_new})

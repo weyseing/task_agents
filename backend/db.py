@@ -1,7 +1,6 @@
 import json
 import os
 import uuid
-from datetime import datetime
 
 import asyncpg
 
@@ -17,6 +16,21 @@ async def init_db():
     pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
     async with pool.acquire() as conn:
         await conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id UUID PRIMARY KEY,
+                google_sub TEXT UNIQUE NOT NULL,
+                email TEXT NOT NULL,
+                name TEXT,
+                picture TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                expires_at TIMESTAMPTZ NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
             CREATE TABLE IF NOT EXISTS conversations (
                 id UUID PRIMARY KEY,
                 title TEXT NOT NULL,
@@ -41,12 +55,22 @@ async def init_db():
             );
             CREATE INDEX IF NOT EXISTS idx_messages_conversation
                 ON messages(conversation_id, created_at);
-            CREATE INDEX IF NOT EXISTS idx_conversations_updated
-                ON conversations(updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
         """)
-        # Migration for existing tables
+        # Migrations for existing tables — must run before indexes that
+        # reference the migrated columns.
         await conn.execute(
             "ALTER TABLE messages ADD COLUMN IF NOT EXISTS tool_calls JSONB"
+        )
+        await conn.execute(
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_id UUID"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_conversations_user_updated "
+            "ON conversations(user_id, updated_at DESC)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_gmail_creds_email ON gmail_credentials(email)"
         )
 
 
@@ -57,21 +81,130 @@ async def close_db():
         pool = None
 
 
-async def create_conversation(title: str) -> str:
+# --- Users ---
+
+
+async def get_user_by_google_sub(google_sub: str) -> dict | None:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, google_sub, email, name, picture FROM users WHERE google_sub = $1",
+            google_sub,
+        )
+    if not row:
+        return None
+    return {
+        "id": str(row["id"]),
+        "google_sub": row["google_sub"],
+        "email": row["email"],
+        "name": row["name"],
+        "picture": row["picture"],
+    }
+
+
+async def get_user_by_id(user_id: str) -> dict | None:
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, google_sub, email, name, picture FROM users WHERE id = $1",
+            uuid.UUID(user_id),
+        )
+    if not row:
+        return None
+    return {
+        "id": str(row["id"]),
+        "google_sub": row["google_sub"],
+        "email": row["email"],
+        "name": row["name"],
+        "picture": row["picture"],
+    }
+
+
+async def upsert_user(
+    google_sub: str, email: str, name: str | None, picture: str | None
+) -> str:
+    """Insert or update a user by google_sub. Returns users.id."""
+    user_id = str(uuid.uuid4())
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO users (id, google_sub, email, name, picture)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (google_sub) DO UPDATE
+              SET email = EXCLUDED.email,
+                  name = EXCLUDED.name,
+                  picture = EXCLUDED.picture,
+                  updated_at = now()
+            RETURNING id
+            """,
+            uuid.UUID(user_id),
+            google_sub,
+            email,
+            name,
+            picture,
+        )
+    return str(row["id"])
+
+
+# --- Sessions ---
+
+
+async def create_session(user_id: str, token: str, ttl_seconds: int):
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO sessions (token, user_id, expires_at) "
+            "VALUES ($1, $2, now() + ($3 || ' seconds')::interval)",
+            token,
+            uuid.UUID(user_id),
+            str(ttl_seconds),
+        )
+
+
+async def get_session_user_id(token: str) -> str | None:
+    """Return user_id if the session exists and is not expired, else None."""
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT user_id FROM sessions WHERE token = $1 AND expires_at > now()",
+            token,
+        )
+    return str(row["user_id"]) if row else None
+
+
+async def touch_session(token: str, ttl_seconds: int):
+    """Slide the session expiry forward."""
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE sessions SET expires_at = now() + ($2 || ' seconds')::interval "
+            "WHERE token = $1",
+            token,
+            str(ttl_seconds),
+        )
+
+
+async def delete_session(token: str):
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM sessions WHERE token = $1", token)
+
+
+# --- Conversations ---
+
+
+async def create_conversation(user_id: str, title: str) -> str:
     conv_id = str(uuid.uuid4())
     async with pool.acquire() as conn:
         await conn.execute(
-            "INSERT INTO conversations (id, title) VALUES ($1, $2)",
+            "INSERT INTO conversations (id, user_id, title) VALUES ($1, $2, $3)",
             uuid.UUID(conv_id),
+            uuid.UUID(user_id),
             title,
         )
     return conv_id
 
 
-async def get_conversations() -> list[dict]:
+async def get_conversations(user_id: str) -> list[dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC"
+            "SELECT id, title, created_at, updated_at FROM conversations "
+            "WHERE user_id = $1 ORDER BY updated_at DESC",
+            uuid.UUID(user_id),
         )
     return [
         {
@@ -84,10 +217,17 @@ async def get_conversations() -> list[dict]:
     ]
 
 
-async def get_conversation_messages(conversation_id: str) -> list[dict]:
+async def get_conversation_messages(conversation_id: str, user_id: str) -> list[dict]:
     async with pool.acquire() as conn:
+        owner = await conn.fetchval(
+            "SELECT user_id FROM conversations WHERE id = $1",
+            uuid.UUID(conversation_id),
+        )
+        if owner is None or str(owner) != user_id:
+            return []
         rows = await conn.fetch(
-            "SELECT role, content, thinking, tool_calls FROM messages WHERE conversation_id = $1 ORDER BY created_at",
+            "SELECT role, content, thinking, tool_calls FROM messages "
+            "WHERE conversation_id = $1 ORDER BY created_at",
             uuid.UUID(conversation_id),
         )
     results = []
@@ -125,21 +265,32 @@ async def save_message(
         )
 
 
-async def update_conversation_title(conversation_id: str, title: str):
+async def update_conversation_title(conversation_id: str, user_id: str, title: str):
     async with pool.acquire() as conn:
         await conn.execute(
-            "UPDATE conversations SET title = $1 WHERE id = $2",
+            "UPDATE conversations SET title = $1 WHERE id = $2 AND user_id = $3",
             title,
             uuid.UUID(conversation_id),
+            uuid.UUID(user_id),
         )
 
 
-async def delete_conversation(conversation_id: str):
+async def delete_conversation(conversation_id: str, user_id: str):
     async with pool.acquire() as conn:
         await conn.execute(
-            "DELETE FROM conversations WHERE id = $1",
+            "DELETE FROM conversations WHERE id = $1 AND user_id = $2",
+            uuid.UUID(conversation_id),
+            uuid.UUID(user_id),
+        )
+
+
+async def conversation_belongs_to(conversation_id: str, user_id: str) -> bool:
+    async with pool.acquire() as conn:
+        owner = await conn.fetchval(
+            "SELECT user_id FROM conversations WHERE id = $1",
             uuid.UUID(conversation_id),
         )
+    return owner is not None and str(owner) == user_id
 
 
 # --- Gmail credentials ---
@@ -161,20 +312,28 @@ async def get_gmail_creds(user_id: str) -> dict | None:
 
 
 async def upsert_gmail_creds(user_id: str, email: str, token_json: dict):
+    """Upsert gmail creds keyed by user_id. Also clears any orphaned row
+    that holds the same email under a different (legacy/anon) user_id."""
     async with pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO gmail_credentials (user_id, email, token_json)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (user_id) DO UPDATE
-              SET email = EXCLUDED.email,
-                  token_json = EXCLUDED.token_json,
-                  updated_at = now()
-            """,
-            user_id,
-            email,
-            json.dumps(token_json),
-        )
+        async with conn.transaction():
+            await conn.execute(
+                "DELETE FROM gmail_credentials WHERE email = $1 AND user_id <> $2",
+                email,
+                user_id,
+            )
+            await conn.execute(
+                """
+                INSERT INTO gmail_credentials (user_id, email, token_json)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (user_id) DO UPDATE
+                  SET email = EXCLUDED.email,
+                      token_json = EXCLUDED.token_json,
+                      updated_at = now()
+                """,
+                user_id,
+                email,
+                json.dumps(token_json),
+            )
 
 
 async def delete_gmail_creds(user_id: str):

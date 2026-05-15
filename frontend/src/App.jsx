@@ -3,10 +3,13 @@ import Sidebar from "./components/Sidebar";
 import ChatHome from "./components/ChatHome";
 import ChatMessages from "./components/ChatMessages";
 import ChatInput from "./components/ChatInput";
+import LoginPage from "./components/LoginPage";
 import { apiFetch } from "./api";
 import "./App.css";
 
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -20,14 +23,28 @@ export default function App() {
   const fetchConversations = useCallback(async () => {
     try {
       const res = await apiFetch(`/api/conversations`);
+      if (!res.ok) return;
       const data = await res.json();
       setConversations(data);
     } catch {}
   }, []);
 
+  // On mount: check existing session
   useEffect(() => {
-    fetchConversations();
-  }, [fetchConversations]);
+    (async () => {
+      try {
+        const res = await apiFetch("/api/auth/me");
+        if (res.ok) {
+          setUser(await res.json());
+        }
+      } catch {}
+      setAuthChecked(true);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (user) fetchConversations();
+  }, [user, fetchConversations]);
 
   const loadConversation = async (id) => {
     try {
@@ -205,6 +222,20 @@ export default function App() {
     setInput("");
   };
 
+  const handleLogout = async () => {
+    try {
+      await apiFetch("/api/auth/logout", { method: "POST" });
+    } catch {}
+    setUser(null);
+    setMessages([]);
+    setConversations([]);
+    setConversationId(null);
+    setChatStarted(false);
+  };
+
+  if (!authChecked) return null;
+  if (!user) return <LoginPage onSignedIn={setUser} />;
+
   return (
     <div className="app">
       <Sidebar
@@ -216,6 +247,8 @@ export default function App() {
         onSelect={loadConversation}
         onRename={renameConversation}
         onDelete={deleteConversation}
+        user={user}
+        onLogout={handleLogout}
       />
       <main className="main">
         {!chatStarted ? (

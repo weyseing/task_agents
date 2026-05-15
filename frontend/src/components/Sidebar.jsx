@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import GmailConnect from "./GmailConnect";
 import "./Sidebar.css";
 
 function groupConversations(conversations) {
@@ -124,7 +123,61 @@ function ConvDropdown({ conv, anchorRect, onRename, onDelete, onClose }) {
   );
 }
 
-export default function Sidebar({ conversations, activeId, collapsed, onToggleCollapse, onNewChat, onSelect, onRename, onDelete }) {
+function UserMenu({ user, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const initials = (user.name || user.email || "?")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((s) => s[0].toUpperCase())
+    .join("");
+
+  return (
+    <div className="sidebar-user" ref={menuRef}>
+      <button
+        type="button"
+        className="sidebar-user-btn"
+        onClick={() => setOpen((o) => !o)}
+      >
+        {user.picture ? (
+          <img src={user.picture} alt="" className="sidebar-user-avatar" referrerPolicy="no-referrer" />
+        ) : (
+          <span className="sidebar-user-initials">{initials}</span>
+        )}
+        <span className="sidebar-user-text">
+          <span className="sidebar-user-name">{user.name || user.email}</span>
+          {user.name && <span className="sidebar-user-email">{user.email}</span>}
+        </span>
+      </button>
+      {open && (
+        <div className="sidebar-user-menu" role="menu">
+          <button
+            type="button"
+            className="sidebar-user-menu-item"
+            onClick={() => { setOpen(false); onLogout(); }}
+          >
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function Sidebar({ conversations, activeId, collapsed, onToggleCollapse, onNewChat, onSelect, onRename, onDelete, user, onLogout }) {
   const [search, setSearch] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [openMenu, setOpenMenu] = useState(null);
@@ -244,7 +297,7 @@ export default function Sidebar({ conversations, activeId, collapsed, onToggleCo
         ))}
       </div>
 
-      <GmailConnect />
+      {user && <UserMenu user={user} onLogout={onLogout} />}
     </aside>
   );
 }
