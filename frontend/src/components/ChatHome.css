@@ -4,37 +4,47 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 0 24px 120px;
-  gap: 32px;
+  padding: 24px 24px 24px;
+  gap: 28px;
+  min-height: 0;
+}
+
+.chat-home-mark {
+  width: 64px;
+  height: 64px;
 }
 
 .chat-home-title {
-  font-size: 32px;
-  font-weight: 600;
-  color: #1a1a1a;
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+  line-height: 1.1;
+  text-align: center;
 }
 
 .chat-home-chips {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
   justify-content: center;
 }
 
 .chip {
-  padding: 8px 18px;
-  border: 1px solid #e0e0e0;
-  border-radius: 20px;
-  background: #fff;
-  font-size: 14px;
-  color: #444;
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  font-size: 12.5px;
+  color: var(--ink-2);
   cursor: pointer;
   font-family: inherit;
-  transition: background 0.15s;
+  transition: border-color 0.12s var(--ease), background 0.12s var(--ease);
 }
 
 .chip:hover {
-  background: #f5f5f5;
+  border-color: var(--muted-2);
+  background: var(--surface-2);
 }
 
 .chat-home-suggestions {
@@ -49,25 +59,28 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 16px;
-  border: none;
-  background: none;
-  font-size: 14px;
-  color: #333;
+  padding: 12px 14px;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+  color: var(--ink-2);
   cursor: pointer;
   border-radius: 10px;
   text-align: left;
   font-family: inherit;
-  transition: background 0.15s;
+  transition: background 0.12s var(--ease), color 0.12s var(--ease);
 }
 
 .suggestion:hover {
-  background: #f5f5f5;
+  background: var(--surface-2);
+  color: var(--ink);
 }
 
 .suggestion-icon {
-  color: #888;
+  color: var(--muted);
   flex-shrink: 0;
+  display: grid;
+  place-items: center;
 }
 
 .suggestion-text {
@@ -75,6 +88,6 @@
 }
 
 .suggestion-arrow {
-  color: #ccc;
+  color: var(--muted-2);
   flex-shrink: 0;
 }

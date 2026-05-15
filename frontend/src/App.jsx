@@ -4,6 +4,7 @@ import ChatHome from "./components/ChatHome";
 import ChatMessages from "./components/ChatMessages";
 import ChatInput from "./components/ChatInput";
 import LoginPage from "./components/LoginPage";
+import Topbar from "./components/Topbar";
 import { apiFetch } from "./api";
 import "./App.css";
 
@@ -236,8 +237,10 @@ export default function App() {
   if (!authChecked) return null;
   if (!user) return <LoginPage onSignedIn={setUser} />;
 
+  const activeConversation = conversations.find((c) => c.id === conversationId);
+
   return (
-    <div className="app">
+    <div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       <Sidebar
         conversations={conversations}
         activeId={conversationId}
@@ -251,6 +254,12 @@ export default function App() {
         onLogout={handleLogout}
       />
       <main className="main">
+        {chatStarted && (
+          <Topbar
+            conversation={activeConversation}
+            messageCount={messages.length}
+          />
+        )}
         {!chatStarted ? (
           <ChatHome onSend={sendMessage} />
         ) : (

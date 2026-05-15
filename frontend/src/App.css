@@ -1,12 +1,18 @@
 .app {
-  display: flex;
+  display: grid;
+  grid-template-columns: 268px 1fr;
   height: 100vh;
+  background: var(--bg);
+}
+
+.app.sidebar-collapsed {
+  grid-template-columns: 60px 1fr;
 }
 
 .main {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  position: relative;
+  min-height: 0;
+  height: 100vh;
   overflow: hidden;
 }

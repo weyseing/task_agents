@@ -1,3 +1,4 @@
+import AgentLogo from "./AgentLogo";
 import "./ChatHome.css";
 
 const suggestions = [
@@ -33,6 +34,9 @@ const icons = {
 export default function ChatHome({ onSend }) {
   return (
     <div className="chat-home">
+      <div className="chat-home-mark">
+        <AgentLogo size={64} />
+      </div>
       <h1 className="chat-home-title">What can I help you with?</h1>
 
       <div className="chat-home-chips">
