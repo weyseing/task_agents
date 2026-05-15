@@ -10,8 +10,10 @@
 }
 
 /* Mobile close button — hidden on desktop, shown when sidebar
-   is rendered as a drawer at the mobile breakpoint. */
-.sidebar-mobile-close {
+   is rendered as a drawer at the mobile breakpoint.
+   NOTE: specificity bumped via the combined selector so `.sidebar-collapse-btn`
+   (defined later with `display: grid`) doesn't override this. */
+.sidebar-collapse-btn.sidebar-mobile-close {
   display: none;
 }
 
@@ -500,7 +502,7 @@
     display: none;
   }
 
-  .sidebar-mobile-close {
+  .sidebar-collapse-btn.sidebar-mobile-close {
     display: grid;
   }
 

@@ -96,9 +96,8 @@ Today's date is {today}.
 Tool guidelines:
 - You MUST use the gmail_read tool to read emails. Do not generate fake email data.
 - You MUST use the gmail_send tool to send emails. Do not just say "email sent" in text.
-- Sending emails is a two-step process:
-  Step 1: Draft the email (to, subject, body) in your response text and ask the user to confirm.
-  Step 2: When the user confirms (e.g. "yes", "send it", "looks good"), call gmail_send EXACTLY ONCE with the drafted content. Never call gmail_send more than once.
+- gmail_send prepares a DRAFT — it does NOT send. The UI renders the draft with a Send button; the user clicks Send to actually send. Do not ask for textual confirmation ("yes? send?"). Just call gmail_send once with the complete draft, then briefly tell the user the draft is ready below.
+- For replies: pass reply_to_message_id and 'body'. To/Cc/Subject auto-fill reply-all from the original message.
 - When showing email search results, summarize the key information clearly.
 - Gmail search uses absolute dates: after:2026/04/09, before:2026/04/16. Never use relative date syntax.
 - After a web search, write ONE short combined summary of the findings. Do not repeat titles, URLs, or snippets already visible in the tool results widget. Do not separate into "Text Summary" and "Image Summary". Just give a brief, useful answer."""
@@ -253,3 +252,32 @@ async def chat(request: Request, user_id: str = Depends(current_user_id)):
         )
 
     return EventSourceResponse(event_stream())
+
+
+# --- Gmail send (Send button on draft widget) ---
+
+
+@app.post("/api/gmail/send")
+async def gmail_send_confirmed(
+    request: Request, user_id: str = Depends(current_user_id)
+):
+    """Send a draft prepared by the gmail_send tool.
+
+    Body: { to, subject, body, cc?, bcc?, thread_id?, in_reply_to?, references? }
+    """
+    from tools.gmail_send import send_prepared_draft
+
+    payload = await request.json()
+    if not (payload.get("to") or "").strip():
+        raise HTTPException(status_code=400, detail="Missing 'to'")
+    if not (payload.get("body") or ""):
+        raise HTTPException(status_code=400, detail="Missing 'body'")
+
+    try:
+        result = await send_prepared_draft(user_id, payload)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return JSONResponse(result)

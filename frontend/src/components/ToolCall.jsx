@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { apiFetch } from "../api";
 import "./ToolCall.css";
 
 const TOOL_LABELS = {
@@ -14,7 +15,8 @@ function formatArgs(name, args) {
       if (args.message_id) return `message ${args.message_id}`;
       return args.query ? `"${args.query}"` : "in:inbox";
     case "gmail_send":
-      return `to: ${args.to}`;
+      if (args.reply_to_message_id) return "reply draft";
+      return args.to ? `draft to: ${args.to}` : "draft";
     case "web_search":
       return args.query ? `"${args.query}"` : "";
     default:
@@ -135,14 +137,112 @@ function GmailReadResult({ data }) {
 }
 
 function GmailSendResult({ data }) {
+  // Local UI state: "pending" -> "sending" -> "sent" | "error" | "cancelled"
+  const initialState = data.status === "pending_confirmation" ? "pending" : "sent";
+  const [state, setState] = useState(initialState);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [sentTo, setSentTo] = useState(data.to);
+
+  const handleSend = async () => {
+    setState("sending");
+    setErrorMsg("");
+    try {
+      const res = await apiFetch("/api/gmail/send", {
+        method: "POST",
+        body: JSON.stringify({
+          to: data.to,
+          cc: data.cc,
+          bcc: data.bcc,
+          subject: data.subject,
+          body: data.body,
+          thread_id: data.thread_id,
+          in_reply_to: data.in_reply_to,
+          references: data.references,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Send failed (${res.status})`);
+      }
+      const result = await res.json();
+      setSentTo(result.to || data.to);
+      setState("sent");
+    } catch (e) {
+      setErrorMsg(e.message || "Send failed");
+      setState("error");
+    }
+  };
+
+  const handleCancel = () => setState("cancelled");
+
+  if (state === "sent") {
+    return (
+      <div className="send-result">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+        <div>
+          <div>
+            {data.is_reply ? "Replied to" : "Sent to"} <strong>{sentTo}</strong>
+          </div>
+          {data.cc && <div className="send-detail">Cc: {data.cc}</div>}
+          <div className="send-detail">Subject: {data.subject}</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (state === "cancelled") {
+    return <div className="tc-empty">Draft discarded.</div>;
+  }
+
+  // Pending / sending / error — show draft + buttons
   return (
-    <div className="send-result">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="20 6 9 17 4 12" />
-      </svg>
-      <div>
-        <div>Sent to <strong>{data.to}</strong></div>
-        <div className="send-detail">Subject: {data.subject}</div>
+    <div className="send-draft">
+      <div className="send-draft-header">
+        {data.is_reply ? "Reply draft" : "Email draft"}
+      </div>
+      <div className="send-draft-fields">
+        <div className="send-draft-row">
+          <span className="k">To</span>
+          <span className="v">{data.to}</span>
+        </div>
+        {data.cc && (
+          <div className="send-draft-row">
+            <span className="k">Cc</span>
+            <span className="v">{data.cc}</span>
+          </div>
+        )}
+        {data.bcc && (
+          <div className="send-draft-row">
+            <span className="k">Bcc</span>
+            <span className="v">{data.bcc}</span>
+          </div>
+        )}
+        <div className="send-draft-row">
+          <span className="k">Subject</span>
+          <span className="v">{data.subject}</span>
+        </div>
+      </div>
+      <div className="send-draft-body">{data.body}</div>
+      {state === "error" && <div className="tc-error">{errorMsg}</div>}
+      <div className="send-draft-actions">
+        <button
+          type="button"
+          className="send-draft-btn cancel"
+          onClick={handleCancel}
+          disabled={state === "sending"}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="send-draft-btn primary"
+          onClick={handleSend}
+          disabled={state === "sending"}
+        >
+          {state === "sending" ? "Sending…" : state === "error" ? "Retry" : "Send"}
+        </button>
       </div>
     </div>
   );
@@ -204,7 +304,10 @@ function ToolResult({ name, data }) {
   if (data.error) return <div className="tc-error">{data.error}</div>;
   switch (name) {
     case "gmail_read": return <GmailReadResult data={data} />;
-    case "gmail_send": return <GmailSendResult data={data} />;
+    // gmail_send: the interactive draft widget is rendered OUTSIDE the
+    // tool-call box (see ToolCall below). The box itself shows raw JSON
+    // for inspection — single source of state lives in the widget.
+    case "gmail_send": return <pre className="tool-raw">{JSON.stringify(data, null, 2)}</pre>;
     case "web_search": return <WebSearchResult data={data} />;
     default: return <pre className="tool-raw">{JSON.stringify(data, null, 2)}</pre>;
   }
@@ -234,7 +337,7 @@ export default function ToolCall({ toolCall }) {
   const isError = status === "error" || data?.error;
   const label = TOOL_LABELS[name] || name;
 
-  return (
+  const toolcallBox = (
     <details
       className="toolcall"
       open={open}
@@ -274,4 +377,22 @@ export default function ToolCall({ toolCall }) {
       </div>
     </details>
   );
+
+  // For gmail_send, also surface the interactive draft widget as a
+  // primary chat element so the user can click Send/Cancel without
+  // having to expand the tool-call box.
+  if (name === "gmail_send" && !isError) {
+    return (
+      <>
+        {toolcallBox}
+        {isRunning || !data ? (
+          <div className="draft-preparing">Preparing draft…</div>
+        ) : (
+          <GmailSendResult data={data} />
+        )}
+      </>
+    );
+  }
+
+  return toolcallBox;
 }

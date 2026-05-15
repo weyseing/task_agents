@@ -439,6 +439,118 @@
   font-family: ui-monospace, "SF Mono", monospace;
 }
 
+/* ============== Send draft (confirm widget) ============== */
+
+.draft-preparing {
+  font-size: 12.5px;
+  color: var(--muted);
+  padding: 8px 12px;
+  font-style: italic;
+}
+
+
+.send-draft {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.send-draft-header {
+  padding: 8px 14px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.send-draft-fields {
+  padding: 10px 14px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.send-draft-row {
+  display: flex;
+  gap: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.send-draft-row .k {
+  flex: 0 0 56px;
+  color: var(--muted);
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-weight: 600;
+  padding-top: 1px;
+}
+
+.send-draft-row .v {
+  flex: 1;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.send-draft-body {
+  padding: 10px 14px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  line-height: 1.55;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.send-draft-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+.send-draft-btn {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  padding: 7px 16px;
+  font-size: 12.5px;
+  font-weight: 500;
+  border-radius: 7px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s var(--ease), border-color 0.12s var(--ease);
+}
+
+.send-draft-btn:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.send-draft-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.send-draft-btn.primary:hover:not(:disabled) {
+  background: var(--accent-2);
+  border-color: var(--accent-2);
+}
+
+.send-draft-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* ============== Web search image carousel ============== */
 
 .search-combined {
