@@ -1,0 +1,27 @@
+# Local virtualenvs and Python build artifacts — never deployed.
+.venv/
+venv/
+env/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Test / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editor / OS junk
+.DS_Store
+.idea/
+.vscode/
+
+# Local secrets / env (Cloud Run uses --set-env-vars at deploy time)
+.env
+.env.*
+
+# Logs
+*.log
