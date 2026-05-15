@@ -1,61 +1,84 @@
+import { useEffect, useRef } from "react";
 import "./Topbar.css";
 
-function relativeTime(iso) {
-  if (!iso) return null;
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return null;
-  const diff = Math.max(0, Date.now() - then);
-  const sec = Math.floor(diff / 1000);
-  if (sec < 60) return "just now";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min} min ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr} hr ago`;
-  const day = Math.floor(hr / 24);
-  if (day < 7) return `${day}d ago`;
-  return new Date(iso).toLocaleDateString();
+function ShareIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 12v7a2 2 0 002 2h12a2 2 0 002-2v-7" />
+      <path d="M16 6l-4-4-4 4" />
+      <line x1="12" y1="2" x2="12" y2="15" />
+    </svg>
+  );
 }
 
-export default function Topbar({ conversation, messageCount }) {
+function MoreIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+      <circle cx="5" cy="12" r="1" />
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="19" cy="12" r="1" />
+    </svg>
+  );
+}
+
+export default function Topbar({ conversation, onRename }) {
+  const titleRef = useRef(null);
   const title = conversation?.title || "New conversation";
-  const started = conversation?.created_at
-    ? relativeTime(conversation.created_at)
-    : null;
-  const subParts = [];
-  if (messageCount) subParts.push(`${messageCount} message${messageCount === 1 ? "" : "s"}`);
-  if (started) subParts.push(`started ${started}`);
+  const editable = !!conversation?.id;
+
+  useEffect(() => {
+    if (titleRef.current && titleRef.current.textContent !== title) {
+      titleRef.current.textContent = title;
+    }
+  }, [title]);
+
+  const commit = () => {
+    if (!editable || !titleRef.current) return;
+    const next = titleRef.current.textContent.trim();
+    if (!next) {
+      titleRef.current.textContent = title;
+      return;
+    }
+    if (next !== title) onRename?.(conversation.id, next);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      e.currentTarget.blur();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.currentTarget.textContent = title;
+      e.currentTarget.blur();
+    }
+  };
 
   return (
     <div className="topbar">
-      <div className="topbar-left">
-        <div>
-          <div className="title-line">{title}</div>
-          {subParts.length > 0 && (
-            <div className="title-sub">{subParts.join(" · ")}</div>
-          )}
+      <div className="topbar-row">
+        <div className="topbar-left">
+          <div className="title-wrap">
+            <div
+              ref={titleRef}
+              className="title-line"
+              contentEditable={editable}
+              suppressContentEditableWarning
+              spellCheck={false}
+              onBlur={commit}
+              onKeyDown={handleKeyDown}
+            >
+              {title}
+            </div>
+          </div>
         </div>
-      </div>
-      <div className="topbar-right">
-        <span className="pill">
-          <span className="indicator" />
-          Instant
-        </span>
-        <button type="button" className="icon-btn" title="Share">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-            <circle cx="18" cy="5" r="3" />
-            <circle cx="6" cy="12" r="3" />
-            <circle cx="18" cy="19" r="3" />
-            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-          </svg>
-        </button>
-        <button type="button" className="icon-btn" title="More">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-            <circle cx="5" cy="12" r="1" />
-            <circle cx="12" cy="12" r="1" />
-            <circle cx="19" cy="12" r="1" />
-          </svg>
-        </button>
+        <div className="topbar-right">
+          <button type="button" className="icon-btn" title="Share">
+            <ShareIcon />
+          </button>
+          <button type="button" className="icon-btn" title="More">
+            <MoreIcon />
+          </button>
+        </div>
       </div>
     </div>
   );

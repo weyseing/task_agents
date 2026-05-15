@@ -39,6 +39,7 @@ task_agents/
 
 ```
 {"conversation_id": "...", "is_new": bool}   — first event
+{"step": {"n": int, "label": str}}           — agent progress marker
 {"thinking": "..."}                          — thinking text chunk
 {"content": "..."}                           — response text chunk
 {"tool_call": {"id", "name", "args"}}        — tool invocation

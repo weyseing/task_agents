@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "../api";
+import AgentLogo from "./AgentLogo";
 import "./LoginPage.css";
 
 export default function LoginPage({ onSignedIn }) {
@@ -62,7 +63,7 @@ export default function LoginPage({ onSignedIn }) {
     <div className="login-page">
       <header className="login-top">
         <div className="login-brand-tiny">
-          <RingsMark size={24} />
+          <AgentLogo size={26} />
           <span className="login-brand-name">Lumen</span>
         </div>
         <div className="login-top-link">
@@ -72,14 +73,14 @@ export default function LoginPage({ onSignedIn }) {
 
       <main className="login-center">
         <div className="login-hero-mark">
-          <RingsMark animated />
+          <AgentLogo size={152} />
         </div>
 
         <h1 className="login-title">
-          Sign in to <em>Lumen</em>.
+          Sign in to <strong>Lumen</strong>.
         </h1>
         <p className="login-lede">
-          Internal task-agent platform for Northwind Labs. Authorized personnel only.
+          Internal task-agent platform for WFH Group. Authorized personnel only.
         </p>
 
         <button
@@ -95,6 +96,16 @@ export default function LoginPage({ onSignedIn }) {
             {busy ? "Redirecting to Google…" : "Continue with Google"}
           </span>
         </button>
+
+        <div className="login-secure-strip">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="4" y="11" width="16" height="10" rx="2" />
+            <path d="M8 11V7a4 4 0 018 0v4" />
+          </svg>
+          <span>SSO via Google Workspace</span>
+          <span className="dot" />
+          <span>SOC 2 Type II</span>
+        </div>
 
         {error && <p className="login-error">{error}</p>}
 
@@ -114,28 +125,6 @@ export default function LoginPage({ onSignedIn }) {
         </div>
       </footer>
     </div>
-  );
-}
-
-function RingsMark({ animated = false, size }) {
-  const style = size ? { width: size, height: size } : undefined;
-  if (animated) {
-    return (
-      <svg viewBox="0 0 100 100" style={style}>
-        <circle className="hr hr1" cx="50" cy="50" r="34" fill="none" stroke="#DCE7FB" strokeWidth="5" />
-        <circle className="hr hr2" cx="50" cy="50" r="24" fill="none" stroke="#5C92F5" strokeWidth="5" />
-        <circle className="hr hr3" cx="50" cy="50" r="14" fill="none" stroke="#3B7BF3" strokeWidth="5" />
-        <circle className="hr-core" cx="50" cy="50" r="9" fill="#0F172A" />
-      </svg>
-    );
-  }
-  return (
-    <svg viewBox="0 0 100 100" style={style}>
-      <circle cx="50" cy="50" r="34" fill="none" stroke="#DCE7FB" strokeWidth="6" />
-      <circle cx="50" cy="50" r="24" fill="none" stroke="#5C92F5" strokeWidth="6" />
-      <circle cx="50" cy="50" r="14" fill="none" stroke="#3B7BF3" strokeWidth="6" />
-      <circle cx="50" cy="50" r="9" fill="#0F172A" />
-    </svg>
   );
 }
 

@@ -247,35 +247,31 @@
   height: 13px;
 }
 
-/* ============== Loading: ring breath + shimmer + step meta ============== */
+/* ============== Logo (stacked glass tiles): minimal breath ============== */
 
-.msg-mark .ring,
-.msg-mark .core {
+.msg-mark .tile {
   transform-origin: 50% 50%;
   transform-box: fill-box;
 }
 
-.msg-mark.loading .r1 {
-  animation: ring-breath 1.8s var(--ease) infinite 0s;
-}
-.msg-mark.loading .r2 {
-  animation: ring-breath 1.8s var(--ease) infinite 0.18s;
-}
-.msg-mark.loading .r3 {
-  animation: ring-breath 1.8s var(--ease) infinite 0.36s;
-}
-.msg-mark.loading .core {
-  animation: core-breath 1.8s var(--ease) infinite 0.54s;
+/* Loading: whole mark scales 1 → 1.06, back tile opacity dips .55 → 1. */
+.msg-mark.loading {
+  animation: mark-breath 1.8s var(--ease) infinite;
+  transform-origin: 50% 50%;
 }
 
-@keyframes ring-breath {
-  0%, 100% { opacity: 0.35; }
-  40%      { opacity: 1; }
+.msg-mark.loading .tile-back {
+  animation: anchor-pulse 1.8s var(--ease) infinite;
 }
 
-@keyframes core-breath {
-  0%, 100% { transform: scale(1);    opacity: 1; }
-  50%      { transform: scale(1.12); opacity: 0.85; }
+@keyframes mark-breath {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.06); }
+}
+
+@keyframes anchor-pulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
 }
 
 .thinking {

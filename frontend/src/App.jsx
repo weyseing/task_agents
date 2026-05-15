@@ -104,7 +104,7 @@ export default function App() {
     setTimeout(() => {
       if (lastUserRef.current) {
         const container = lastUserRef.current.closest(".chat-messages");
-        const top = lastUserRef.current.offsetTop - 40;
+        const top = lastUserRef.current.offsetTop - 120;
         container.scrollTo({ top, behavior: "smooth" });
       }
     }, 100);
@@ -123,6 +123,7 @@ export default function App() {
       let thinkingContent = "";
       let responseContent = "";
       let toolCalls = [];
+      let steps = [];
       let added = false;
       let stillThinking = true;
       let thinkStartTime = null;
@@ -134,6 +135,7 @@ export default function App() {
           content: responseContent,
           thinking: thinkingContent,
           tool_calls: toolCalls.length > 0 ? [...toolCalls] : undefined,
+          steps: steps.length > 0 ? [...steps] : undefined,
           isThinking: stillThinking,
           thinkDuration,
         };
@@ -173,6 +175,10 @@ export default function App() {
               continue;
             }
 
+            if (parsed.step) {
+              steps = [...steps, parsed.step];
+              updateMessage();
+            }
             if (parsed.thinking) {
               if (!thinkStartTime) thinkStartTime = Date.now();
               thinkingContent += parsed.thinking;
@@ -257,7 +263,7 @@ export default function App() {
         {chatStarted && (
           <Topbar
             conversation={activeConversation}
-            messageCount={messages.length}
+            onRename={renameConversation}
           />
         )}
         {!chatStarted ? (

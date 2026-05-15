@@ -30,10 +30,12 @@
   min-width: 0;
 }
 
-.brand .msg-mark {
-  width: 30px;
-  height: 30px;
-  flex: 0 0 30px;
+.brand .brand-favicon {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 7px;
+  object-fit: cover;
 }
 
 .brand-text {
@@ -103,9 +105,11 @@
   opacity: 1;
 }
 
-.brand-collapsed-logo .msg-mark {
+.brand-collapsed-logo .brand-favicon {
   width: 26px;
   height: 26px;
+  border-radius: 6px;
+  object-fit: cover;
 }
 
 /* ============== Generic icon button ============== */

@@ -24,6 +24,7 @@ async def run_agent(
     Run the agent loop, yielding SSE event dicts.
 
     Events:
+      {"step": {"n": int, "label": str}} — progress marker (iteration / tool call)
       {"content": str}       — text chunk
       {"tool_call": dict}    — tool invocation
       {"tool_result": dict}  — tool execution result
@@ -40,7 +41,10 @@ async def run_agent(
         stream=True,
     )
 
-    for _ in range(MAX_ITERATIONS):
+    for iteration in range(MAX_ITERATIONS):
+        step_n = iteration + 1
+        yield {"step": {"n": step_n, "label": "Thinking"}}
+
         response = await litellm.acompletion(**kwargs)
 
         content = ""
@@ -143,6 +147,7 @@ async def run_agent(
             except json.JSONDecodeError:
                 args = {}
 
+            yield {"step": {"n": step_n, "label": f"Calling {name}"}}
             yield {"tool_call": {"id": tc["id"], "name": name, "args": args}}
             result = await execute_tool(name, args, user_id=user_id)
             yield {"tool_result": {"id": tc["id"], "name": name, "data": result}}

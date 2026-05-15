@@ -56,33 +56,39 @@ function RegenIcon() {
   );
 }
 
-function formatStage(msg) {
+function currentStep(msg) {
+  const last = msg?.steps && msg.steps.length > 0 ? msg.steps[msg.steps.length - 1] : null;
+  if (last) return { n: last.n, label: last.label };
+  // Fall back to derived state if backend hasn't emitted a step yet
   if (msg?.tool_calls && msg.tool_calls.length > 0) {
     const running = msg.tool_calls.find((tc) => tc.status === "running");
-    if (running) return { label: "Using tool", stage: running.name };
-    return { label: "Composing", stage: "incorporating tool results" };
+    if (running) return { n: msg.tool_calls.length, label: `Calling ${running.name}` };
+    return { n: msg.tool_calls.length, label: "Composing" };
   }
-  if (msg?.thinking) return { label: "Thinking", stage: "reading context" };
-  return { label: "Thinking", stage: "reading context" };
+  return { n: 1, label: "Thinking" };
+}
+
+function shimmerLabel(label) {
+  if (!label) return "Thinking";
+  if (label.startsWith("Calling")) return "Using tool";
+  return label;
 }
 
 function StepMeta({ message }) {
-  const toolCount = message?.tool_calls?.length || 0;
-  const step = toolCount + 1;
-  const { stage } = formatStage(message);
+  const { n, label } = currentStep(message);
   return (
     <div className="thinking-meta">
-      <span>step {step} ·</span>
-      <span className="stage">{stage}</span>
+      <span>step {n} ·</span>
+      <span className="stage">{label.toLowerCase()}</span>
     </div>
   );
 }
 
 function ThinkingRow({ message }) {
-  const { label } = formatStage(message);
+  const { label } = currentStep(message);
   return (
     <div className="thinking">
-      <span className="think-shimmer">{label}</span>
+      <span className="think-shimmer">{shimmerLabel(label)}</span>
       <span className="think-dots"><span /><span /><span /></span>
     </div>
   );

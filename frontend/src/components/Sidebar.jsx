@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import AgentLogo from "./AgentLogo";
 import "./Sidebar.css";
 
 function groupConversations(conversations) {
@@ -255,7 +254,7 @@ export default function Sidebar({
           title="Expand sidebar"
         >
           <span className="brand-collapsed-logo">
-            <AgentLogo size={26} />
+            <img src="/favicon.png" alt="Task Agents" className="brand-favicon" />
           </span>
           <span className="brand-collapsed-icon">
             <SidebarToggleIcon />
@@ -275,7 +274,7 @@ export default function Sidebar({
     <aside className="sidebar">
       <div className="sidebar-top">
         <div className="brand">
-          <AgentLogo size={30} />
+          <img src="/favicon.png" alt="Task Agents" className="brand-favicon" />
           <div className="brand-text">
             <div className="brand-name">Lumen</div>
             <div className="brand-sub">task agents</div>
