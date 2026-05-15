@@ -22,6 +22,7 @@ const AGENT_MIN = 300;
 const AGENT_MAX = 620;
 const AGENT_DEFAULT = 360;
 const AGENT_WIDTH_KEY = "lumen.agentWidth";
+const SIDEBAR_COLLAPSED_KEY = "lumen.sidebarCollapsed";
 
 // `/files/<file-id>` — match the pattern used in App.jsx
 const FILE_URL_RE = /^\/files\/([a-f0-9-]+)\/?$/i;
@@ -46,6 +47,14 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
   const [confirm, setConfirm] = useState(null);
   const [mobileSidebar, setMobileSidebar] = useState(false);
   const [mobileAgent, setMobileAgent] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof localStorage === "undefined") return false;
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+  });
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? "1" : "0");
+  }, [sidebarCollapsed]);
 
   const [agentWidth, setAgentWidth] = useState(() => {
     const stored = parseInt(
@@ -270,7 +279,7 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
         width: "100vw",
         overflow: "hidden",
         display: "grid",
-        gridTemplateColumns: `268px 1fr ${agentWidth}px`,
+        gridTemplateColumns: `${sidebarCollapsed ? 60 : 268}px 1fr ${agentWidth}px`,
         background: C_PAGE,
         color: C_INK,
         fontFamily: '"Sora", system-ui',
@@ -283,9 +292,11 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
         root={fs}
         activeId={activeId}
         expanded={expanded}
+        collapsed={sidebarCollapsed}
         user={user}
         mobileOpen={mobileSidebar}
         onMobileClose={() => setMobileSidebar(false)}
+        onToggleCollapse={() => setSidebarCollapsed((c) => !c)}
         onToggle={handleToggle}
         onOpen={handleOpenAndCloseDrawer}
         onDelete={handleDelete}

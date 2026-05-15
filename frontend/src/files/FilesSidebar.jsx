@@ -13,19 +13,61 @@ import {
   C_SURFACE2,
 } from "./tokens";
 
+function SidebarToggleIcon() {
+  return (
+    <svg className="sidebar-toggle-svg" viewBox="0 0 32 32" fill="none">
+      <path d="M8.875 9.875a1 1 0 0 1 1 1v10.25a1 1 0 1 1-2 0v-10.25a1 1 0 0 1 1-1z" fill="currentColor" />
+      <path fillRule="evenodd" clipRule="evenodd" d="M20.6 6.125c1.105 0 1.988 0 2.699.058.72.059 1.342.182 1.914.473a4.877 4.877 0 0 1 2.13 2.131c.292.572.416 1.193.474 1.914.058.711.058 1.594.058 2.7V18.6c0 1.105 0 1.988-.058 2.699-.058.72-.182 1.342-.473 1.914a4.877 4.877 0 0 1-2.131 2.13c-.572.292-1.193.416-1.914.474-.711.058-1.594.058-2.7.058H11.4c-1.105 0-1.988 0-2.699-.058-.72-.058-1.342-.182-1.914-.473a4.877 4.877 0 0 1-2.13-2.131c-.292-.572-.415-1.193-.474-1.914-.058-.711-.058-1.594-.058-2.7V13.4c0-1.105 0-1.988.058-2.699.059-.72.182-1.342.473-1.914a4.877 4.877 0 0 1 2.131-2.13c.572-.292 1.193-.415 1.914-.474.711-.058 1.594-.058 2.7-.058H20.6zm-9.2 1.75c-1.134 0-1.933 0-2.556.052-.613.05-.98.144-1.263.289-.588.3-1.066.777-1.365 1.365-.145.284-.24.65-.29 1.263-.05.623-.051 1.422-.051 2.556v5.2c0 1.134 0 1.933.052 2.556.05.613.144.98.289 1.263.3.588.777 1.066 1.365 1.365.284.145.65.24 1.263.29.623.05 1.422.051 2.556.051h9.2c1.134 0 1.933 0 2.556-.052.613-.05.98-.144 1.263-.289a3.125 3.125 0 0 0 1.365-1.365c.145-.284.24-.65.29-1.263.05-.623.051-1.422.051-2.556v-5.2c0-1.134 0-1.933-.052-2.556-.05-.613-.144-.98-.289-1.263a3.125 3.125 0 0 0-1.365-1.365c-.284-.145-.65-.24-1.263-.29-.623-.05-1.422-.051-2.556-.051h-9.2z" fill="currentColor" />
+    </svg>
+  );
+}
+
 export default function FilesSidebar({
   root,
   activeId,
   expanded,
+  collapsed,
   user,
   mobileOpen,
   onMobileClose,
+  onToggleCollapse,
   onToggle,
   onOpen,
   onDelete,
   onNavChat,
   onLogout,
 }) {
+
+  if (collapsed) {
+    return (
+      <aside className="files-sidebar sidebar collapsed">
+        <button
+          type="button"
+          className="brand-collapsed-toggle"
+          onClick={onToggleCollapse}
+          title="Expand sidebar"
+        >
+          <span className="brand-collapsed-logo">
+            <img src="/favicon.svg" alt="Lumen" className="brand-favicon" />
+          </span>
+          <span className="brand-collapsed-icon">
+            <SidebarToggleIcon />
+          </span>
+        </button>
+        <button type="button" className="icon-btn" onClick={onNavChat} title="New chat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
+        <button type="button" className="icon-btn" title="Search" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+            <circle cx="11" cy="11" r="7" />
+            <path d="M21 21l-4.5-4.5" />
+          </svg>
+        </button>
+      </aside>
+    );
+  }
 
   return (
     <aside
@@ -46,9 +88,15 @@ export default function FilesSidebar({
           aria-label="Close menu"
           title="Close menu"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-            <path d="M6 6l12 12M18 6L6 18" />
-          </svg>
+          <SidebarToggleIcon />
+        </button>
+        <button
+          type="button"
+          className="sidebar-collapse-btn sidebar-desktop-collapse"
+          onClick={onToggleCollapse}
+          title="Collapse sidebar"
+        >
+          <SidebarToggleIcon />
         </button>
       </div>
 
