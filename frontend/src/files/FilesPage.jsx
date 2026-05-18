@@ -12,6 +12,7 @@ import {
   deleteFile,
   fsFind,
   uploadFiles,
+  createFile,
 } from "./fsData";
 import { C_BG, C_INK, C_PAGE } from "./tokens";
 import "./FilesPage.css";
@@ -356,11 +357,35 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
     setMobileSidebar(false);
   };
 
-  const handleUpload = async (files) => {
+  const handleNewFolder = async () => {
+    const name = window.prompt("Folder name")?.trim();
+    if (!name) return;
+    try {
+      await createFile({ name, kind: "folder" });
+      const tree = await loadTree();
+      setFs(tree);
+      // Expand all folders so the new one is visible.
+      const allFolderIds = new Set();
+      const collect = (n) => {
+        if (n.kind === "folder" && n.id !== "root") allFolderIds.add(n.id);
+        (n.children || []).forEach(collect);
+      };
+      collect(tree);
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        allFolderIds.forEach((id) => next.add(id));
+        return next;
+      });
+    } catch (e) {
+      setError(`Create folder failed: ${e.message}`);
+    }
+  };
+
+  const handleUpload = async (files, parentId = null) => {
     const names = Array.from(files || []).map((f) => f.name);
     setUploadStatus({ phase: "uploading", count: names.length, names });
     try {
-      const res = await uploadFiles(files);
+      const res = await uploadFiles(files, parentId);
       if (res.skipped?.length) {
         const msg = res.skipped
           .map((s) => `${s.name}: ${s.reason}`)
@@ -477,6 +502,7 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
         onNavChat={onNavChat}
         onLogout={onLogout}
         onUpload={handleUpload}
+        onNewFolder={handleNewFolder}
       />
       <div
         style={{

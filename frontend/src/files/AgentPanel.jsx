@@ -370,11 +370,13 @@ function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkspaceChanged }) {
     setError(null);
 
     const userMsg = { role: "user", content };
+    // Chronological segments: each entry is either {type:'text', text} or
+    // {type:'tool', tc}. Renders inline in the order events arrived.
     let pending = {
       role: "assistant",
-      content: "",
-      tool_calls: [],
+      segments: [],
       isThinking: true,
+      streaming: true,
     };
     setMessages((prev) => [...prev, userMsg, pending]);
 
@@ -397,6 +399,21 @@ function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkspaceChanged }) {
       let buf = "";
       let mutatedFiles = [];
       let createdFiles = [];
+      // Debounce the tree refresh: a single agent turn can spit out several
+      // file_created events in quick succession; coalesce into one fetch.
+      let treeRefreshTimer = null;
+      const scheduleTreeRefresh = () => {
+        if (!onWorkspaceChanged) return;
+        if (treeRefreshTimer) return;
+        treeRefreshTimer = setTimeout(() => {
+          treeRefreshTimer = null;
+          try {
+            onWorkspaceChanged();
+          } catch {
+            /* non-fatal */
+          }
+        }, 150);
+      };
 
       const flush = () => {
         setMessages((prev) => {
@@ -427,28 +444,58 @@ function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkspaceChanged }) {
             continue;
           }
           if (ev.content) {
-            pending.content += ev.content;
+            // Append to the trailing text segment, or start a new one if the
+            // previous segment was a tool. Immutable update so React sees
+            // the change.
+            const segs = pending.segments;
+            const last = segs[segs.length - 1];
+            if (last && last.type === "text") {
+              pending.segments = [
+                ...segs.slice(0, -1),
+                { type: "text", text: last.text + ev.content },
+              ];
+            } else {
+              pending.segments = [...segs, { type: "text", text: ev.content }];
+            }
             pending.isThinking = false;
             flush();
           }
           if (ev.tool_call) {
             pending.isThinking = false;
-            pending.tool_calls = [
-              ...(pending.tool_calls || []),
-              { ...ev.tool_call, status: "running" },
+            pending.segments = [
+              ...pending.segments,
+              { type: "tool", tc: { ...ev.tool_call, status: "running" } },
             ];
             flush();
           }
           if (ev.tool_result) {
-            pending.tool_calls = (pending.tool_calls || []).map((tc) =>
-              tc.id === ev.tool_result.id
-                ? { ...tc, status: "done", data: ev.tool_result.data }
-                : tc
+            pending.segments = pending.segments.map((s) =>
+              s.type === "tool" && s.tc.id === ev.tool_result.id
+                ? { ...s, tc: { ...s.tc, status: "done", data: ev.tool_result.data } }
+                : s
             );
             flush();
           }
+          if (ev.file_mutated) {
+            // Reload any open tab that matches — keeps editors in sync as
+            // the agent mutates workbooks mid-stream.
+            if (onWorkbookMutated) {
+              try {
+                onWorkbookMutated([ev.file_mutated]);
+              } catch {
+                /* non-fatal */
+              }
+            }
+          }
+          if (ev.file_created) {
+            // Refresh the file tree so the new workbook appears in the
+            // sidebar immediately. Debounced so a burst of creations is
+            // one fetch.
+            scheduleTreeRefresh();
+          }
           if (ev.done) {
             pending.isThinking = false;
+            pending.streaming = false;
             mutatedFiles = ev.mutated_files || [];
             createdFiles = ev.created_files || [];
             flush();
@@ -668,28 +715,80 @@ function Message({ msg }) {
     );
   }
 
-  const hasContent = !!msg.content;
-  const hasTools = msg.tool_calls && msg.tool_calls.length > 0;
-  const pending = msg.isThinking && !hasContent && !hasTools;
+  // Render order: chronological segments if present (new streams), else
+  // legacy shape (historical messages from DB: all tools, then content).
+  const segments = buildSegments(msg);
+  const showThinking = msg.isThinking && segments.length === 0;
+  // Working pill: agent is still streaming and we already have something to
+  // show. Sits at the bottom so the user knows more is coming.
+  const showWorking = msg.streaming && !msg.isThinking && segments.length > 0;
 
   return (
     <div style={{ marginBottom: 14 }}>
-      {hasTools && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
-          {msg.tool_calls.map((tc) => (
-            <SheetToolPill key={tc.id} tc={tc} />
-          ))}
-        </div>
-      )}
-      {hasContent && (
-        <div
-          className="reply"
-          style={{ fontSize: 13.5, lineHeight: 1.55, color: C_INK }}
-        >
-          <Markdown remarkPlugins={[remarkGfm]}>{msg.content}</Markdown>
-        </div>
-      )}
-      {pending && <PendingBubble />}
+      {segments.map((seg, i) => {
+        if (seg.type === "tool") {
+          return (
+            <div key={seg.tc.id || `t-${i}`} style={{ margin: "6px 0" }}>
+              <SheetToolPill tc={seg.tc} />
+            </div>
+          );
+        }
+        return (
+          <div
+            key={`x-${i}`}
+            className="reply"
+            style={{ fontSize: 13.5, lineHeight: 1.55, color: C_INK, margin: "6px 0" }}
+          >
+            <Markdown remarkPlugins={[remarkGfm]}>{seg.text}</Markdown>
+          </div>
+        );
+      })}
+      {showThinking && <PendingBubble />}
+      {showWorking && <WorkingBubble />}
+    </div>
+  );
+}
+
+
+function buildSegments(msg) {
+  if (Array.isArray(msg.segments)) return msg.segments;
+  // Historical-message fallback: the DB doesn't preserve event ordering,
+  // so we surface tools first (in insertion order), then the final text.
+  const out = [];
+  if (Array.isArray(msg.tool_calls)) {
+    for (const tc of msg.tool_calls) out.push({ type: "tool", tc });
+  }
+  if (msg.content) out.push({ type: "text", text: msg.content });
+  return out;
+}
+
+
+function WorkingBubble() {
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "6px 10px",
+        borderRadius: 12,
+        border: `1px solid ${C_LINE}`,
+        background: "#FBFCFD",
+        marginTop: 4,
+      }}
+    >
+      <PulseDots />
+      <span
+        className="agent-shimmer-label"
+        style={{
+          fontSize: 12,
+          fontWeight: 500,
+          color: C_INK2,
+          letterSpacing: "0.01em",
+        }}
+      >
+        Working…
+      </span>
     </div>
   );
 }
@@ -918,9 +1017,20 @@ function Composer({ disabled, onSend, workbooks }) {
     });
   };
 
+  // Auto-grow the textarea on newlines up to MAX_COMPOSER_PX, then scroll
+  // inside. Mirrors the main chat composer in components/ChatInput.jsx.
+  const MAX_COMPOSER_PX = 180;
+  const autosize = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, MAX_COMPOSER_PX)}px`;
+  };
+
   useEffect(() => {
-    // After value change, recompute
+    // After value change, recompute mention popup AND resize the textarea.
     refreshMention();
+    autosize();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
@@ -1028,7 +1138,7 @@ function Composer({ disabled, onSend, workbooks }) {
             resize: "none",
             padding: "4px 2px 6px",
             minHeight: 22,
-            maxHeight: 140,
+            maxHeight: MAX_COMPOSER_PX,
             overflowY: "auto",
           }}
         />

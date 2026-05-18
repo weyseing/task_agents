@@ -24,6 +24,7 @@ export default function TabStrip({ tabs, activeId, dirty, onActivate, onClose })
             key={t.id}
             onClick={() => onActivate(t.id)}
             className="tab-strip-item"
+            title={t.name}
             style={{
               display: "flex",
               alignItems: "center",

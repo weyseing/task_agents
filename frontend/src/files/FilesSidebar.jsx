@@ -37,12 +37,20 @@ export default function FilesSidebar({
   onNavChat,
   onLogout,
   onUpload,
+  onNewFolder,
 }) {
   const fileInputRef = useRef(null);
-  const handlePickFiles = () => fileInputRef.current?.click();
+  // When set, the next file-chooser callback uploads INTO this folder id.
+  // null = upload to root (the header button).
+  const uploadTargetRef = useRef(null);
+  const handlePickFiles = (parentId = null) => {
+    uploadTargetRef.current = parentId;
+    fileInputRef.current?.click();
+  };
   const handleFilesChosen = (e) => {
     const files = Array.from(e.target.files || []);
-    if (files.length && onUpload) onUpload(files);
+    if (files.length && onUpload) onUpload(files, uploadTargetRef.current);
+    uploadTargetRef.current = null;
     // Reset so picking the same file twice in a row still fires onChange.
     e.target.value = "";
   };
@@ -167,7 +175,13 @@ export default function FilesSidebar({
               onChange={handleFilesChosen}
               style={{ display: "none" }}
             />
-            <IconBtn title="Upload csv/xlsx" inline onClick={handlePickFiles}>
+            <IconBtn title="New folder" inline onClick={onNewFolder}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+                <path d="M12 11v6M9 14h6" />
+              </svg>
+            </IconBtn>
+            <IconBtn title="Upload csv/xlsx to root" inline onClick={() => handlePickFiles(null)}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 16V4" />
                 <path d="M7 9l5-5 5 5" />
@@ -186,6 +200,7 @@ export default function FilesSidebar({
             onToggle={onToggle}
             onOpen={onOpen}
             onDelete={onDelete}
+            onUploadTo={handlePickFiles}
           />
         </div>
       </div>
@@ -255,7 +270,7 @@ function SidebarFoot({ user, onLogout }) {
 }
 
 
-function TreeNode({ node, depth, isRoot, activeId, expanded, onToggle, onOpen, onDelete }) {
+function TreeNode({ node, depth, isRoot, activeId, expanded, onToggle, onOpen, onDelete, onUploadTo }) {
   const isOpen = expanded.has(node.id) || isRoot;
 
   if (node.kind === "folder") {
@@ -263,7 +278,7 @@ function TreeNode({ node, depth, isRoot, activeId, expanded, onToggle, onOpen, o
     return (
       <div>
         {!isRoot && (
-          <Row depth={depth} active={false} onClick={() => onToggle(node.id)}>
+          <Row depth={depth} active={false} title={node.name} onClick={() => onToggle(node.id)}>
             <Chevron open={isOpen} />
             <FolderGlyph open={isOpen} />
             <span
@@ -284,6 +299,28 @@ function TreeNode({ node, depth, isRoot, activeId, expanded, onToggle, onOpen, o
             >
               {childCount}
             </span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onUploadTo?.(node.id);
+              }}
+              title={`Upload csv/xlsx into ${node.name}`}
+              className="row-del"
+              style={{
+                width: 20,
+                height: 20,
+                border: "none",
+                background: "transparent",
+                color: C_MUTED,
+                cursor: "pointer",
+                borderRadius: 5,
+                display: "grid",
+                placeItems: "center",
+                transition: `opacity .12s ${C_EASE}, background .12s ${C_EASE}`,
+              }}
+            >
+              <UploadGlyph />
+            </button>
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -319,6 +356,7 @@ function TreeNode({ node, depth, isRoot, activeId, expanded, onToggle, onOpen, o
               onToggle={onToggle}
               onOpen={onOpen}
               onDelete={onDelete}
+              onUploadTo={onUploadTo}
             />
           ))}
       </div>
@@ -326,7 +364,7 @@ function TreeNode({ node, depth, isRoot, activeId, expanded, onToggle, onOpen, o
   }
 
   return (
-    <Row depth={depth} active={node.id === activeId} onClick={() => onOpen(node.id)}>
+    <Row depth={depth} active={node.id === activeId} title={node.name} onClick={() => onOpen(node.id)}>
       <span style={{ width: 10, flexShrink: 0 }} />
       <FileChip type={node.type} />
       <span
@@ -368,11 +406,12 @@ function TreeNode({ node, depth, isRoot, activeId, expanded, onToggle, onOpen, o
   );
 }
 
-function Row({ depth, active, onClick, children }) {
+function Row({ depth, active, onClick, title, children }) {
   return (
     <div
       onClick={onClick}
       className="tree-row"
+      title={title}
       style={{
         display: "flex",
         alignItems: "center",
@@ -430,6 +469,16 @@ function FolderGlyph({ open }) {
         strokeWidth="0.7"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+function UploadGlyph() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6.5 8.5V2.5" />
+      <path d="M3.8 5.2L6.5 2.5L9.2 5.2" />
+      <path d="M2.5 10.5h8" />
     </svg>
   );
 }

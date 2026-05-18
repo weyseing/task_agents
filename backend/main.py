@@ -828,6 +828,34 @@ async def workspace_excel_chat(
                                     )
                         break
             yield json.dumps(event)
+            # Emit incremental refresh hints right after the tool result so
+            # the UI can update the tree / open editors mid-stream instead of
+            # waiting for the final `done` event.
+            if "tool_result" in event:
+                tc_match = next(
+                    (tc for tc in tool_calls_data if tc["id"] == event["tool_result"]["id"]),
+                    None,
+                )
+                if tc_match:
+                    data = event["tool_result"]["data"] or {}
+                    if "error" not in data:
+                        if tc_match["name"] in MUTATING and data.get("file_id"):
+                            yield json.dumps({"file_mutated": data["file_id"]})
+                        if tc_match["name"] in CREATING:
+                            saved = (
+                                data.get("saved_as")
+                                if tc_match["name"] == "sheet_pivot"
+                                else data
+                            )
+                            if saved and saved.get("id"):
+                                yield json.dumps(
+                                    {
+                                        "file_created": {
+                                            "id": saved["id"],
+                                            "name": saved.get("name"),
+                                        }
+                                    }
+                                )
 
         yield json.dumps(
             {
