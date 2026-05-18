@@ -42,36 +42,6 @@ USER_SCOPED = {
     "move_item",
 }
 
-# Tools that take a file_id fallback (used in legacy per-file mode).
-# In workspace mode the agent passes `file` explicitly; file_id is None.
-FILE_SCOPED = {
-    "sheet_read",
-    "sheet_set_cells",
-    "sheet_add_rows",
-    "sheet_delete_rows",
-    "sheet_add_columns",
-    "sheet_delete_columns",
-    "sheet_set_headers",
-    "sheet_replace_all",
-    "sheet_compute",
-    "sheet_sort",
-    "sheet_filter",
-    "sheet_describe",
-    "sheet_correlate",
-    "sheet_value_counts",
-    "sheet_histogram",
-    "sheet_pivot",
-    "sheet_set_formula",
-    "sheet_add_formula_column",
-    "workbook_list",
-    "workbook_peek",
-    "workbook_create",
-    "workbook_join",
-    "workbook_concat",
-    "folder_create",
-    "move_item",
-}
-
 REGISTRY = {
     "gmail_read": {"schema": GMAIL_READ_SCHEMA, "handler": gmail_read},
     "gmail_send": {"schema": GMAIL_SEND_SCHEMA, "handler": gmail_send},
@@ -148,13 +118,10 @@ def get_tools(toolset: str = "general") -> list[dict]:
     ]
 
 
-async def execute_tool(
-    name: str, args: dict, user_id: str, file_id: str | None = None
-) -> dict:
-    """Execute a tool by name. Injects user_id and file_id (may be None).
+async def execute_tool(name: str, args: dict, user_id: str) -> dict:
+    """Execute a tool by name. Injects user_id for tools that need it.
 
-    Sheet/workbook tools accept a `file` arg from the model. file_id is a
-    convenience fallback (used by legacy per-file mode), not required.
+    Sheet/workbook tools take a `file` arg from the model (workbook name or id).
     """
     if name not in REGISTRY:
         return {"error": f"Unknown tool: {name}"}
@@ -162,6 +129,4 @@ async def execute_tool(
     kwargs = dict(args)
     if name in USER_SCOPED:
         kwargs["user_id"] = user_id
-    if name in FILE_SCOPED:
-        kwargs["file_id"] = file_id
     return await handler(**kwargs)

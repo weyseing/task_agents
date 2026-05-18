@@ -2,14 +2,12 @@
 
 Two families of tools share the same agent:
 
-- sheet_*    — operate on the SCOPED file (the active workbook in the panel).
-               This is the default canvas. Most edits + analysis go here.
+- sheet_*    — operate on a single workbook identified by `file` (name or id).
 - workbook_* — multi-file ops. Reach other workbooks, combine them, or
                create new workbooks. Always referenced by file name.
 
-The agent loop injects user_id and file_id (the scoped file). Cross-file
-tools take a `file` parameter that resolves by name OR id, scoped to the
-user's workspace.
+The agent loop injects user_id. Every tool takes a `file` parameter that
+resolves by name OR id, scoped to the user's workspace.
 """
 
 import json
@@ -532,11 +530,10 @@ SCHEMA_FILTER = {
 
 
 async def handler_read(
-    *, user_id: str, file_id: str | None = None,
-    file: str | None = None, limit: int = 100, offset: int = 0,
+    *, user_id: str, file: str | None = None, limit: int = 100, offset: int = 0,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
     except ValueError as e:
         return {"error": str(e)}
     columns = sheet["columns"]
@@ -568,10 +565,10 @@ async def handler_read(
 
 
 async def handler_set_cells(
-    *, user_id: str, file_id: str | None = None, file: str | None = None, updates: list,
+    *, user_id: str, file: str | None = None, updates: list,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
     except ValueError as e:
         return {"error": str(e)}
     columns = sheet["columns"]
@@ -602,10 +599,10 @@ async def handler_set_cells(
 
 
 async def handler_add_rows(
-    *, user_id: str, file_id: str | None = None, file: str | None = None, rows: list,
+    *, user_id: str, file: str | None = None, rows: list,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
     except ValueError as e:
         return {"error": str(e)}
     columns = sheet["columns"]
@@ -631,10 +628,10 @@ async def handler_add_rows(
 
 
 async def handler_delete_rows(
-    *, user_id: str, file_id: str | None = None, file: str | None = None, indices: list,
+    *, user_id: str, file: str | None = None, indices: list,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
     except ValueError as e:
         return {"error": str(e)}
     rows = sheet["rows"]
@@ -687,10 +684,10 @@ def _eval_formula(expr: str, columns: list[str], row: list[str]) -> str:
 
 
 async def handler_add_columns(
-    *, user_id: str, file_id: str | None = None, file: str | None = None, columns: list,
+    *, user_id: str, file: str | None = None, columns: list,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
     except ValueError as e:
         return {"error": str(e)}
     added = 0
@@ -722,10 +719,10 @@ async def handler_add_columns(
 
 
 async def handler_delete_columns(
-    *, user_id: str, file_id: str | None = None, file: str | None = None, columns: list,
+    *, user_id: str, file: str | None = None, columns: list,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
     except ValueError as e:
         return {"error": str(e)}
     indices = []
@@ -749,10 +746,10 @@ async def handler_delete_columns(
 
 
 async def handler_set_headers(
-    *, user_id: str, file_id: str | None = None, file: str | None = None, renames: list,
+    *, user_id: str, file: str | None = None, renames: list,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
     except ValueError as e:
         return {"error": str(e)}
     applied = 0
@@ -768,11 +765,11 @@ async def handler_set_headers(
 
 
 async def handler_replace_all(
-    *, user_id: str, file_id: str | None = None, file: str | None = None,
+    *, user_id: str, file: str | None = None,
     columns: list, rows: list,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
     except ValueError as e:
         return {"error": str(e)}
     sheet["columns"] = [str(c) for c in (columns or [])]
@@ -809,12 +806,12 @@ def _matches(row: list[str], columns: list[str], where: dict) -> bool:
 
 
 async def handler_compute(
-    *, user_id: str, file_id: str | None = None, file: str | None = None,
+    *, user_id: str, file: str | None = None,
     op: str, column: str | None = None,
     where: dict | None = None, group_by: str | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
     except ValueError as e:
         return {"error": str(e)}
     columns = sheet["columns"]
@@ -883,11 +880,11 @@ async def handler_compute(
 
 
 async def handler_sort(
-    *, user_id: str, file_id: str | None = None, file: str | None = None,
+    *, user_id: str, file: str | None = None,
     column: str, order: str = "asc",
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
     except ValueError as e:
         return {"error": str(e)}
     try:
@@ -913,11 +910,11 @@ async def handler_sort(
 
 
 async def handler_filter(
-    *, user_id: str, file_id: str | None = None, file: str | None = None,
+    *, user_id: str, file: str | None = None,
     where: dict | None = None, contains: dict | None = None, limit: int = 50,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
     except ValueError as e:
         return {"error": str(e)}
     columns = sheet["columns"]
@@ -962,18 +959,13 @@ def _is_uuid(s: str) -> bool:
     return bool(re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", s or ""))
 
 
-async def _resolve_file(user_id: str, ref: str | None, fallback_id: str | None) -> tuple[str, dict]:
-    """Return (file_id, file_row). `ref` is a uuid, name, or None (= fallback)."""
+async def _resolve_file(user_id: str, ref: str | None) -> tuple[str, dict]:
+    """Return (file_id, file_row). `ref` is a uuid or workbook name."""
     if not ref:
-        if not fallback_id:
-            raise ValueError(
-                "no file specified — pass `file` with the workbook name "
-                "(e.g. file='employees.csv'). Call workbook_list to see options."
-            )
-        row = await get_file(fallback_id, user_id)
-        if not row:
-            raise ValueError(f"file {fallback_id} not found")
-        return fallback_id, row
+        raise ValueError(
+            "no file specified — pass `file` with the workbook name "
+            "(e.g. file='employees.csv'). Call workbook_list to see options."
+        )
     if _is_uuid(ref):
         row = await get_file(ref, user_id)
         if not row:
@@ -995,8 +987,8 @@ async def _resolve_file(user_id: str, ref: str | None, fallback_id: str | None) 
     return matches[0]["id"], matches[0]
 
 
-async def _load_sheet_by_ref(user_id: str, ref: str | None, fallback_id: str | None) -> tuple[str, dict]:
-    fid, _row = await _resolve_file(user_id, ref, fallback_id)
+async def _load_sheet_by_ref(user_id: str, ref: str | None) -> tuple[str, dict]:
+    fid, _row = await _resolve_file(user_id, ref)
     return fid, await _load_sheet(fid, user_id)
 
 
@@ -1008,7 +1000,7 @@ async def _create_workbook(
     columns: list[str],
     rows: list[list[str]],
 ) -> dict:
-    """Create a new csv/xlsx file alongside the scoped file's folder."""
+    """Create a new csv/xlsx file in the given parent folder (None = root)."""
     row = await create_file_row(
         user_id, name=name, kind="file", type=file_type, parent_id=parent_id
     )
@@ -1027,7 +1019,7 @@ async def _create_workbook(
 
 
 # ====================================================================
-# Data science tools (operate on scoped file by default; accept optional `file`)
+# Data science tools
 # ====================================================================
 
 
@@ -1036,21 +1028,19 @@ SCHEMA_DESCRIBE = {
     "description": (
         "Summary statistics for numeric columns: count, missing, mean, median, "
         "stdev, min, p25, p75, max, distinct. Use this to size up a column "
-        "before deeper analysis. By default targets the scoped file."
+        "before deeper analysis."
     ),
     "parameters": {
         "type": "object",
         "properties": {
+            "file": {"type": "string", "description": "Workbook name (e.g. 'sales_q1.csv')"},
             "columns": {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "Columns to describe. Omit to describe all numeric-looking columns.",
             },
-            "file": {
-                "type": "string",
-                "description": "Optional workbook name (e.g. 'sales_q1.csv') to target another file.",
-            },
         },
+        "required": ["file"],
     },
 }
 
@@ -1065,11 +1055,11 @@ SCHEMA_CORRELATE = {
     "parameters": {
         "type": "object",
         "properties": {
+            "file": {"type": "string"},
             "x": {"type": "string", "description": "First column"},
             "y": {"type": "string", "description": "Second column"},
-            "file": {"type": "string"},
         },
-        "required": ["x", "y"],
+        "required": ["file", "x", "y"],
     },
 }
 
@@ -1080,11 +1070,11 @@ SCHEMA_VALUE_COUNTS = {
     "parameters": {
         "type": "object",
         "properties": {
+            "file": {"type": "string"},
             "column": {"type": "string"},
             "top": {"type": "integer", "description": "Max distinct values to return (default 20)"},
-            "file": {"type": "string"},
         },
-        "required": ["column"],
+        "required": ["file", "column"],
     },
 }
 
@@ -1095,11 +1085,11 @@ SCHEMA_HISTOGRAM = {
     "parameters": {
         "type": "object",
         "properties": {
+            "file": {"type": "string"},
             "column": {"type": "string"},
             "bins": {"type": "integer", "description": "Number of buckets (default 10)"},
-            "file": {"type": "string"},
         },
-        "required": ["column"],
+        "required": ["file", "column"],
     },
 }
 
@@ -1114,6 +1104,7 @@ SCHEMA_PIVOT = {
     "parameters": {
         "type": "object",
         "properties": {
+            "file": {"type": "string", "description": "Source workbook"},
             "rows": {"type": "string", "description": "Column to use as row labels"},
             "columns": {"type": "string", "description": "Optional column for column labels"},
             "values": {"type": "string", "description": "Numeric column to aggregate"},
@@ -1122,7 +1113,6 @@ SCHEMA_PIVOT = {
                 "enum": ["sum", "avg", "min", "max", "count"],
                 "description": "Aggregation (default sum)",
             },
-            "file": {"type": "string", "description": "Source workbook (default: scoped file)"},
             "save_as": {
                 "type": "string",
                 "description": "Optional: write the pivot to a new workbook with this filename (e.g. 'pivot_revenue.csv').",
@@ -1132,7 +1122,7 @@ SCHEMA_PIVOT = {
                 "description": "Optional destination folder NAME for the saved file (e.g. 'Reports'). Default: same folder as the source.",
             },
         },
-        "required": ["rows", "values"],
+        "required": ["file", "rows", "values"],
     },
 }
 
@@ -1170,8 +1160,8 @@ SCHEMA_WORKBOOK_PEEK = {
 SCHEMA_WORKBOOK_CREATE = {
     "name": "workbook_create",
     "description": (
-        "Create a NEW workbook. By default lands in the same folder as the "
-        "scoped file; pass `parent` (folder name) to place it elsewhere."
+        "Create a NEW workbook. Lands in the workspace's default location; "
+        "pass `parent` (folder name) to place it in a specific folder."
     ),
     "parameters": {
         "type": "object",
@@ -1299,10 +1289,10 @@ def _describe_one(header: str, values: list[str]) -> dict:
 
 
 async def handler_describe(
-    *, user_id: str, file_id: str, columns: list[str] | None = None, file: str | None = None
+    *, user_id: str, columns: list[str] | None = None, file: str | None = None
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
     except ValueError as e:
         return {"error": str(e)}
     all_cols = sheet["columns"]
@@ -1364,10 +1354,10 @@ def _strength(r: float) -> str:
 
 
 async def handler_correlate(
-    *, user_id: str, file_id: str, x: str, y: str, file: str | None = None
+    *, user_id: str, x: str, y: str, file: str | None = None
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
         xi = _col_index(x, sheet["columns"])
         yi = _col_index(y, sheet["columns"])
     except ValueError as e:
@@ -1397,10 +1387,10 @@ async def handler_correlate(
 
 
 async def handler_value_counts(
-    *, user_id: str, file_id: str, column: str, top: int = 20, file: str | None = None
+    *, user_id: str, column: str, top: int = 20, file: str | None = None
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
         ci = _col_index(column, sheet["columns"])
     except ValueError as e:
         return {"error": str(e)}
@@ -1423,10 +1413,10 @@ async def handler_value_counts(
 
 
 async def handler_histogram(
-    *, user_id: str, file_id: str, column: str, bins: int = 10, file: str | None = None
+    *, user_id: str, column: str, bins: int = 10, file: str | None = None
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
         ci = _col_index(column, sheet["columns"])
     except ValueError as e:
         return {"error": str(e)}
@@ -1467,13 +1457,13 @@ async def handler_histogram(
 
 
 async def handler_pivot(
-    *, user_id: str, file_id: str | None = None, rows: str, values: str,
+    *, user_id: str, rows: str, values: str,
     columns: str | None = None, aggfunc: str = "sum",
     file: str | None = None, save_as: str | None = None,
     parent: str | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
         ri = _col_index(rows, sheet["columns"])
         vi = _col_index(values, sheet["columns"])
         ci = _col_index(columns, sheet["columns"]) if columns else None
@@ -1552,7 +1542,7 @@ async def handler_pivot(
 # ====================================================================
 
 
-async def handler_workbook_list(*, user_id: str, file_id: str) -> dict:
+async def handler_workbook_list(*, user_id: str) -> dict:
     all_rows = await list_user_files(user_id)
     workbooks = []
     for r in all_rows:
@@ -1575,23 +1565,21 @@ async def handler_workbook_list(*, user_id: str, file_id: str) -> dict:
                 "name": r["name"],
                 "type": r["type"],
                 "parent_id": r["parent_id"],
-                "is_scoped": r["id"] == file_id,
                 "columns": cols,
                 "rows": n_rows,
             }
         )
     return {
         "type": "workbook_list",
-        "scoped_file_id": file_id,
         "workbooks": workbooks,
     }
 
 
 async def handler_workbook_peek(
-    *, user_id: str, file_id: str, file: str, limit: int = 10
+    *, user_id: str, file: str, limit: int = 10
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
     except ValueError as e:
         return {"error": str(e)}
     n = max(1, int(limit or 10))
@@ -1604,13 +1592,13 @@ async def handler_workbook_peek(
     }
 
 
-async def _default_parent_id(user_id: str, file_id: str | None) -> str | None:
+async def _default_parent_id(user_id: str, source_file_id: str | None = None) -> str | None:
     """Pick a sensible parent folder for newly-created workbooks.
 
-    Order: 1) parent of the scoped file, 2) the only Workbooks-ish folder
-    the user has, 3) the parent of any existing CSV/XLSX file, 4) root."""
-    if file_id:
-        src = await get_file(file_id, user_id)
+    Order: 1) parent of `source_file_id` (the workbook the output is derived from),
+    2) the only Workbooks-ish folder the user has, 3) the only folder, 4) root."""
+    if source_file_id:
+        src = await get_file(source_file_id, user_id)
         if src:
             return src["parent_id"]
     all_rows = await list_user_files(user_id)
@@ -1627,7 +1615,7 @@ async def _default_parent_id(user_id: str, file_id: str | None) -> str | None:
 
 
 async def _resolve_parent_id(
-    user_id: str, file_id: str | None, parent: str | None
+    user_id: str, source_file_id: str | None, parent: str | None
 ) -> str | None:
     """If `parent` (folder name/id) is provided, resolve to its id; else use default."""
     if parent:
@@ -1639,11 +1627,11 @@ async def _resolve_parent_id(
             if f:
                 return f["id"]
             # Fall through to default if name doesn't match — better than failing.
-    return await _default_parent_id(user_id, file_id)
+    return await _default_parent_id(user_id, source_file_id)
 
 
 async def handler_workbook_create(
-    *, user_id: str, file_id: str | None = None, name: str, columns: list, rows: list,
+    *, user_id: str, name: str, columns: list, rows: list,
     parent: str | None = None,
 ) -> dict:
     if not name or not isinstance(name, str):
@@ -1661,19 +1649,19 @@ async def handler_workbook_create(
         elif len(row) > width:
             row = row[:width]
         cleaned.append(row)
-    parent_id = await _resolve_parent_id(user_id, file_id, parent)
+    parent_id = await _resolve_parent_id(user_id, None, parent)
     new = await _create_workbook(user_id, name, ftype, parent_id, cols, cleaned)
     return {"type": "workbook_create", **new}
 
 
 async def handler_workbook_join(
-    *, user_id: str, file_id: str | None = None, left: str, right: str, save_as: str,
+    *, user_id: str, left: str, right: str, save_as: str,
     on: str | None = None, left_on: str | None = None, right_on: str | None = None,
     how: str = "inner", parent: str | None = None,
 ) -> dict:
     try:
-        l_fid, l_sheet = await _load_sheet_by_ref(user_id, left, file_id)
-        r_fid, r_sheet = await _load_sheet_by_ref(user_id, right, file_id)
+        l_fid, l_sheet = await _load_sheet_by_ref(user_id, left)
+        r_fid, r_sheet = await _load_sheet_by_ref(user_id, right)
     except ValueError as e:
         return {"error": str(e)}
     l_key = left_on or on
@@ -1739,7 +1727,7 @@ async def handler_workbook_join(
                 out_rows.append(combined)
 
     ftype = "xlsx" if save_as.lower().endswith(".xlsx") else "csv"
-    parent_id = await _resolve_parent_id(user_id, file_id, parent)
+    parent_id = await _resolve_parent_id(user_id, None, parent)
     new = await _create_workbook(
         user_id, save_as, ftype, parent_id, out_cols, out_rows
     )
@@ -1756,7 +1744,7 @@ async def handler_workbook_join(
 
 
 async def handler_workbook_concat(
-    *, user_id: str, file_id: str | None = None, files: list, save_as: str,
+    *, user_id: str, files: list, save_as: str,
     add_source_column: bool = False, parent: str | None = None,
 ) -> dict:
     if not files or len(files) < 2:
@@ -1764,7 +1752,7 @@ async def handler_workbook_concat(
     sheets: list[tuple[str, dict]] = []
     for f in files:
         try:
-            fid, sheet = await _load_sheet_by_ref(user_id, f, file_id)
+            fid, sheet = await _load_sheet_by_ref(user_id, f)
         except ValueError as e:
             return {"error": str(e)}
         # Carry original name through for the optional source column
@@ -1792,7 +1780,7 @@ async def handler_workbook_concat(
                 new_row.append(row[j] if j is not None and j < len(row) else "")
             out_rows.append(new_row)
     ftype = "xlsx" if save_as.lower().endswith(".xlsx") else "csv"
-    parent_id = await _resolve_parent_id(user_id, file_id, parent)
+    parent_id = await _resolve_parent_id(user_id, None, parent)
     new = await _create_workbook(
         user_id, save_as, ftype, parent_id, out_cols, out_rows
     )
@@ -1865,10 +1853,10 @@ SCHEMA_ADD_FORMULA_COLUMN = {
 
 
 async def handler_set_formula(
-    *, user_id: str, file_id: str | None = None, file: str | None = None, cells: list,
+    *, user_id: str, file: str | None = None, cells: list,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
     except ValueError as e:
         return {"error": str(e)}
     formulas = dict(sheet.get("formulas") or {})
@@ -1924,11 +1912,11 @@ async def handler_set_formula(
 
 
 async def handler_add_formula_column(
-    *, user_id: str, file_id: str | None = None, file: str | None = None,
+    *, user_id: str, file: str | None = None,
     header: str, formula: str,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file, file_id)
+        fid, sheet = await _load_sheet_by_ref(user_id, file)
     except ValueError as e:
         return {"error": str(e)}
     if not header or not isinstance(header, str):
@@ -2062,8 +2050,7 @@ async def _is_descendant(user_id: str, item_id: str, candidate_ancestor_id: str)
 
 
 async def handler_folder_create(
-    *, user_id: str, file_id: str | None = None,
-    name: str, parent: str | None = None,
+    *, user_id: str, name: str, parent: str | None = None,
 ) -> dict:
     name = (name or "").strip()
     if not name:
@@ -2086,8 +2073,7 @@ async def handler_folder_create(
 
 
 async def handler_move_item(
-    *, user_id: str, file_id: str | None = None,
-    item: str, target: str | None = None,
+    *, user_id: str, item: str, target: str | None = None,
 ) -> dict:
     from db import move_file_row
 
