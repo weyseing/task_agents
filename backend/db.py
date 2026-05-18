@@ -276,20 +276,52 @@ async def get_workspace_conversation_id(user_id: str, workspace: str) -> str | N
     return str(existing) if existing else None
 
 
-async def list_workspace_conversations(user_id: str, workspace: str) -> list[dict]:
-    """Return all conversations in this workspace, newest first, with message counts."""
+async def list_workspace_conversations(
+    user_id: str,
+    workspace: str,
+    *,
+    limit: int = 50,
+    before: str | None = None,
+) -> list[dict]:
+    """Workspace conversations newest first.
+
+    Cursor pagination: pass `before=<iso-updated_at>` to fetch rows strictly
+    older than that timestamp. Default page size 50.
+    """
+    limit = max(1, min(int(limit), 200))
+    # Fetch one extra row to detect whether more pages exist without a count.
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT c.id, c.title, c.created_at, c.updated_at,
-                   (SELECT count(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count
-            FROM conversations c
-            WHERE c.user_id = $1 AND c.workspace = $2
-            ORDER BY c.updated_at DESC
-            """,
-            uuid.UUID(user_id),
-            workspace,
-        )
+        if before:
+            from datetime import datetime
+            cursor = datetime.fromisoformat(before.replace("Z", "+00:00"))
+            rows = await conn.fetch(
+                """
+                SELECT c.id, c.title, c.created_at, c.updated_at,
+                       (SELECT count(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count
+                FROM conversations c
+                WHERE c.user_id = $1 AND c.workspace = $2 AND c.updated_at < $3
+                ORDER BY c.updated_at DESC
+                LIMIT $4
+                """,
+                uuid.UUID(user_id),
+                workspace,
+                cursor,
+                limit + 1,
+            )
+        else:
+            rows = await conn.fetch(
+                """
+                SELECT c.id, c.title, c.created_at, c.updated_at,
+                       (SELECT count(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count
+                FROM conversations c
+                WHERE c.user_id = $1 AND c.workspace = $2
+                ORDER BY c.updated_at DESC
+                LIMIT $3
+                """,
+                uuid.UUID(user_id),
+                workspace,
+                limit + 1,
+            )
     return [
         {
             "id": str(r["id"]),
@@ -312,15 +344,38 @@ async def clear_workspace_conversation(user_id: str, workspace: str) -> None:
         )
 
 
-async def get_conversations(user_id: str) -> list[dict]:
-    # General chat list excludes workspace-scoped conversations (those have their own panel).
+async def get_conversations(
+    user_id: str,
+    *,
+    limit: int = 50,
+    before: str | None = None,
+) -> list[dict]:
+    """General-chat conversations newest first.
+
+    Workspace-scoped chats are excluded (they have their own panel).
+    Cursor pagination: pass `before=<iso-updated_at>` for older pages.
+    """
+    limit = max(1, min(int(limit), 200))
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT id, title, created_at, updated_at FROM conversations "
-            "WHERE user_id = $1 AND workspace IS NULL "
-            "ORDER BY updated_at DESC",
-            uuid.UUID(user_id),
-        )
+        if before:
+            from datetime import datetime
+            cursor = datetime.fromisoformat(before.replace("Z", "+00:00"))
+            rows = await conn.fetch(
+                "SELECT id, title, created_at, updated_at FROM conversations "
+                "WHERE user_id = $1 AND workspace IS NULL AND updated_at < $2 "
+                "ORDER BY updated_at DESC LIMIT $3",
+                uuid.UUID(user_id),
+                cursor,
+                limit + 1,
+            )
+        else:
+            rows = await conn.fetch(
+                "SELECT id, title, created_at, updated_at FROM conversations "
+                "WHERE user_id = $1 AND workspace IS NULL "
+                "ORDER BY updated_at DESC LIMIT $2",
+                uuid.UUID(user_id),
+                limit + 1,
+            )
     return [
         {
             "id": str(r["id"]),

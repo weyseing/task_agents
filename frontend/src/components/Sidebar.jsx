@@ -234,6 +234,9 @@ export default function Sidebar({
   onNavFiles,
   user,
   onLogout,
+  hasMoreConversations,
+  loadingMoreConversations,
+  onLoadMoreConversations,
 }) {
   const [search, setSearch] = useState("");
   const [showSearch, setShowSearch] = useState(false);
@@ -391,6 +394,19 @@ export default function Sidebar({
               ))}
             </div>
           ))}
+          {/* Cursor-paginated history; show "Load older" only when the server
+              says there's more AND the user hasn't typed a filter (search
+              applies locally to the already-loaded page). */}
+          {hasMoreConversations && !search && (
+            <button
+              type="button"
+              className="chats-load-more"
+              onClick={onLoadMoreConversations}
+              disabled={loadingMoreConversations}
+            >
+              {loadingMoreConversations ? "Loading…" : "Load older chats"}
+            </button>
+          )}
         </div>
       </div>
 

@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { apiFetch } from "../api";
 import "../components/ChatMessages.css";
+import ScrollBottomButton from "../components/ScrollBottomButton";
+import AgentLogo from "../components/AgentLogo";
 import {
   C_BG,
   C_EASE,
@@ -241,6 +243,10 @@ const SUGGESTIONS_WITH_FILE = (name) => [
 ];
 
 
+// Same windowing trick the main chat uses: cap rendered messages so long
+// threads don't choke on Markdown + tool-pill rerenders during streaming.
+const MESSAGE_WINDOW = 30;
+
 function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkbookDeleted, onWorkspaceChanged, onOpenFile }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -250,8 +256,45 @@ function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkbookDeleted, onWor
   // History: all threads for this workspace, newest first
   const [threads, setThreads] = useState([]);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [showAllMessages, setShowAllMessages] = useState(false);
   const scrollRef = useRef(null);
   const historyRef = useRef(null);
+  // Anchors the scroll position before older messages mount so the
+  // viewport doesn't jump.
+  const scrollAnchorRef = useRef(null);
+
+  // Reset the visible window whenever we switch threads.
+  useEffect(() => {
+    setShowAllMessages(false);
+  }, [convId]);
+
+  // Auto-expand the message window when the user scrolls near the top.
+  const hiddenMessages = Math.max(0, messages.length - MESSAGE_WINDOW);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || showAllMessages || hiddenMessages === 0) return;
+    const onScroll = () => {
+      if (el.scrollTop < 80) {
+        scrollAnchorRef.current = {
+          prevScrollHeight: el.scrollHeight,
+          prevScrollTop: el.scrollTop,
+        };
+        setShowAllMessages(true);
+      }
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [showAllMessages, hiddenMessages]);
+
+  // Preserve visual anchor when older messages mount in.
+  useLayoutEffect(() => {
+    if (!showAllMessages || !scrollAnchorRef.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const { prevScrollHeight, prevScrollTop } = scrollAnchorRef.current;
+    el.scrollTop = prevScrollTop + (el.scrollHeight - prevScrollHeight);
+    scrollAnchorRef.current = null;
+  }, [showAllMessages]);
 
   // Derive workbooks once per tree change. `workbookList` powers @-mentions
   // in the composer; `workbookNamesForLinkify` powers the chat-reply file
@@ -275,15 +318,45 @@ function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkbookDeleted, onWor
     return () => document.removeEventListener("mousedown", h);
   }, [historyOpen]);
 
+  const [threadsHasMore, setThreadsHasMore] = useState(false);
+  const [threadsNextBefore, setThreadsNextBefore] = useState(null);
+  const [threadsLoadingMore, setThreadsLoadingMore] = useState(false);
+
   const loadThreadsList = async () => {
     try {
-      const r = await apiFetch(`/api/workspace/excel/conversations`);
+      const r = await apiFetch(`/api/workspace/excel/conversations?limit=50`);
       if (r.ok) {
         const data = await r.json();
-        setThreads(data || []);
+        // Tolerate the legacy plain-array response so an older deployed
+        // backend doesn't break a newer frontend (or vice versa).
+        const items = Array.isArray(data) ? data : data.items || [];
+        setThreads(items);
+        setThreadsHasMore(!!(data && data.has_more));
+        setThreadsNextBefore((data && data.next_before) || null);
       }
     } catch {
       // non-fatal
+    }
+  };
+
+  const loadOlderThreads = async () => {
+    if (!threadsHasMore || !threadsNextBefore || threadsLoadingMore) return;
+    setThreadsLoadingMore(true);
+    try {
+      const r = await apiFetch(
+        `/api/workspace/excel/conversations?limit=50&before=${encodeURIComponent(threadsNextBefore)}`,
+      );
+      if (r.ok) {
+        const data = await r.json();
+        const items = data.items || [];
+        setThreads((prev) => [...prev, ...items]);
+        setThreadsHasMore(!!data.has_more);
+        setThreadsNextBefore(data.next_before || null);
+      }
+    } catch {
+      /* non-fatal */
+    } finally {
+      setThreadsLoadingMore(false);
     }
   };
 
@@ -436,12 +509,13 @@ function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkbookDeleted, onWor
     }
   };
 
-  // Auto-scroll to bottom on new content.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [messages]);
+  // Pattern matches the general chat: the only scroll the panel ever
+  // triggers is a ONE-TIME jump to the user's just-sent message right
+  // after submit (so they see what they just typed land at the top of
+  // the viewport). After that we don't touch scroll — the user is free
+  // to read, scroll up to history, etc. The floating "scroll to latest"
+  // button is still there for when they want to jump back.
+  const lastUserMsgRef = useRef(null);
 
   const sendMessage = async (text, mentions) => {
     const content = text?.trim();
@@ -459,6 +533,15 @@ function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkbookDeleted, onWor
       streaming: true,
     };
     setMessages((prev) => [...prev, userMsg, pending]);
+    // Scroll the just-submitted user message to the top of the viewport
+    // exactly once — same UX as the general chat. We use a microtask via
+    // requestAnimationFrame so the DOM has rendered the new node.
+    requestAnimationFrame(() => {
+      const node = lastUserMsgRef.current;
+      if (node && typeof node.scrollIntoView === "function") {
+        node.scrollIntoView({ block: "start", behavior: "smooth" });
+      }
+    });
 
     try {
       const res = await apiFetch(`/api/workspace/excel/chat`, {
@@ -714,10 +797,22 @@ function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkbookDeleted, onWor
               onPick={switchToThread}
               onDelete={deleteThread}
               onClose={() => setHistoryOpen(false)}
+              hasMore={threadsHasMore}
+              loadingMore={threadsLoadingMore}
+              onLoadMore={loadOlderThreads}
             />
           )}
         </span>
       </div>
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          position: "relative",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
       <div
         ref={scrollRef}
         style={{
@@ -730,20 +825,59 @@ function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkbookDeleted, onWor
         {empty ? (
           <EmptyState file={file} suggestions={suggestions} onPick={sendMessage} disabled={streaming} />
         ) : (
-          messages.map((m, i) => (
-            <Message
-              key={i}
-              msg={m}
-              workbookNames={workbookNamesForLinkify}
-              onOpenFile={onOpenFile}
-            />
-          ))
+          (() => {
+            const hidden = hiddenMessages;
+            const start = showAllMessages ? 0 : hidden;
+            const visible = messages.slice(start);
+            return (
+              <>
+                {hidden > 0 && !showAllMessages && (
+                  <button
+                    type="button"
+                    className="chat-show-older"
+                    onClick={() => {
+                      const el = scrollRef.current;
+                      if (el) {
+                        scrollAnchorRef.current = {
+                          prevScrollHeight: el.scrollHeight,
+                          prevScrollTop: el.scrollTop,
+                        };
+                      }
+                      setShowAllMessages(true);
+                    }}
+                  >
+                    Show {hidden} earlier message{hidden === 1 ? "" : "s"}
+                  </button>
+                )}
+                {(() => {
+                  // Find the LAST user message in the visible slice — only
+                  // that one gets the ref attached, since it's the one
+                  // sendMessage just submitted and wants to scroll to.
+                  let lastUserIdx = -1;
+                  for (let j = visible.length - 1; j >= 0; j -= 1) {
+                    if (visible[j].role === "user") { lastUserIdx = j; break; }
+                  }
+                  return visible.map((m, i) => (
+                    <Message
+                      key={start + i}
+                      msg={m}
+                      workbookNames={workbookNamesForLinkify}
+                      onOpenFile={onOpenFile}
+                      lastUserRef={i === lastUserIdx ? lastUserMsgRef : undefined}
+                    />
+                  ));
+                })()}
+              </>
+            );
+          })()
         )}
         {error && (
           <div style={{ fontSize: 12, color: "#b91c1c", padding: "8px 0" }}>
             {error}
           </div>
         )}
+      </div>
+        <ScrollBottomButton targetRef={scrollRef} dep={messages.length} />
       </div>
       <Composer
         disabled={streaming}
@@ -878,10 +1012,13 @@ function remarkLinkifyFiles({ names } = {}) {
 }
 
 
-function Message({ msg, workbookNames, onOpenFile }) {
+function Message({ msg, workbookNames, onOpenFile, lastUserRef }) {
   if (msg.role === "user") {
     return (
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+      <div
+        ref={lastUserRef}
+        style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}
+      >
         <div
           style={{
             maxWidth: "85%",
@@ -908,6 +1045,15 @@ function Message({ msg, workbookNames, onOpenFile }) {
   // Working pill: agent is still streaming and we already have something to
   // show. Sits at the bottom so the user knows more is coming.
   const showWorking = msg.streaming && !msg.isThinking && segments.length > 0;
+  // Surface what the agent is currently doing in the pill: name the most
+  // recent running tool, else fall back to a generic label.
+  const runningTool = (() => {
+    for (let i = segments.length - 1; i >= 0; i -= 1) {
+      const s = segments[i];
+      if (s.type === "tool" && s.tc?.status === "running") return s.tc;
+    }
+    return null;
+  })();
 
   const remarkPlugins = useMemo(
     () =>
@@ -942,10 +1088,24 @@ function Message({ msg, workbookNames, onOpenFile }) {
           </a>
         );
       },
+      // Wrap markdown tables in a horizontally-scrollable container — same
+      // treatment as the general chat — so wide outputs (joined workbooks,
+      // pivot dumps) don't push the panel sideways on mobile.
+      table({ children }) {
+        return (
+          <div className="reply-table-scroll">
+            <table>{children}</table>
+          </div>
+        );
+      },
     }),
     [onOpenFile],
   );
 
+  // Layout: prose flows left-aligned with no permanent avatar column.
+  // The Lumen mark + "Lumen" name + typing bubble all live INSIDE the
+  // loading indicator, so they appear together while the turn is in
+  // progress and all vanish once the reply is done.
   return (
     <div style={{ marginBottom: 14 }}>
       {segments.map((seg, i) => {
@@ -994,64 +1154,38 @@ function buildSegments(msg) {
 }
 
 
+// Loading state for the files-chat agent reply. Option 3: iMessage-style
+// three-dot typing bubble, paired with the breathing Lumen mark + the
+// "Lumen" name. All three appear together while the turn is in progress
+// and all vanish once the reply is done.
 function WorkingBubble() {
   return (
     <div
       style={{
         display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "6px 10px",
-        borderRadius: 12,
-        border: `1px solid ${C_LINE}`,
-        background: "#FBFCFD",
-        marginTop: 4,
+        alignItems: "flex-start",
+        gap: 10,
+        marginTop: 6,
       }}
     >
-      <PulseDots />
-      <span
-        className="agent-shimmer-label"
-        style={{
-          fontSize: 12,
-          fontWeight: 500,
-          color: C_INK2,
-          letterSpacing: "0.01em",
-        }}
-      >
-        Working…
-      </span>
+      <AgentLogo animated size={28} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <div className="assistant-name" style={{ marginBottom: 0 }}>Lumen</div>
+        <div className="typing-bubble" aria-label="Lumen is thinking">
+          <span />
+          <span />
+          <span />
+        </div>
+      </div>
     </div>
   );
 }
 
 
+// Same visual treatment as WorkingBubble so the chat's progress states
+// all read as one family: spinner + soft pill + shimmering label.
 function PendingBubble() {
-  return (
-    <div
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "8px 12px",
-        borderRadius: 14,
-        border: `1px solid ${C_LINE}`,
-        background: "#FBFCFD",
-      }}
-    >
-      <PulseDots />
-      <span
-        className="agent-shimmer-label"
-        style={{
-          fontSize: 12.5,
-          fontWeight: 500,
-          color: C_INK2,
-          letterSpacing: "0.01em",
-        }}
-      >
-        Thinking
-      </span>
-    </div>
-  );
+  return <WorkingBubble runningTool={null} />;
 }
 
 
@@ -1680,7 +1814,7 @@ function relTime(iso) {
 }
 
 
-function HistoryDropdown({ threads, activeId, onPick, onDelete, onClose }) {
+function HistoryDropdown({ threads, activeId, onPick, onDelete, onClose, hasMore, loadingMore, onLoadMore }) {
   if (!threads || threads.length === 0) {
     return (
       <div style={historyPanelStyle()}>
@@ -1774,6 +1908,32 @@ function HistoryDropdown({ threads, activeId, onPick, onDelete, onClose }) {
             </div>
           );
         })}
+        {hasMore && (
+          <button
+            type="button"
+            onClick={onLoadMore}
+            disabled={loadingMore}
+            style={{
+              width: "100%",
+              border: 0,
+              borderTop: `1px solid ${C_LINE_SOFT}`,
+              background: "transparent",
+              padding: "10px 12px",
+              fontSize: 12,
+              color: C_MUTED,
+              cursor: loadingMore ? "default" : "pointer",
+              fontFamily: "inherit",
+            }}
+            onMouseEnter={(e) => {
+              if (!loadingMore) e.currentTarget.style.background = C_SURFACE2;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+            }}
+          >
+            {loadingMore ? "Loading…" : "Load older chats"}
+          </button>
+        )}
       </div>
     </div>
   );

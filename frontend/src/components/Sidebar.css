@@ -307,6 +307,27 @@
   color: var(--muted-2);
 }
 
+.chats-load-more {
+  margin: 4px 6px 8px;
+  width: calc(100% - 12px);
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font: 500 12px "Sora", system-ui;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s var(--ease), color 0.12s var(--ease);
+}
+.chats-load-more:hover {
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+.chats-load-more:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
 .chat-row-wrapper {
   position: relative;
 }

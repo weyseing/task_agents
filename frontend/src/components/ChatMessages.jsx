@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useLayoutEffect, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import AgentLogo from "./AgentLogo";
@@ -168,10 +168,61 @@ function LoadingBubble() {
   );
 }
 
+import ScrollBottomButton from "./ScrollBottomButton";
+
+// Render only the most recent N messages by default; the user can expand
+// to load older ones. Markdown + tool pills are heavy enough that letting
+// the DOM grow unbounded on a long thread visibly lags streaming.
+const MESSAGE_WINDOW = 30;
+
 export default function ChatMessages({ messages, isLoading, isStreaming, lastUserRef }) {
   const lastUserIndex = messages.findLastIndex((m) => m.role === "user");
   const containerRef = useRef(null);
   const [spacerHeight, setSpacerHeight] = useState(0);
+  const [showAll, setShowAll] = useState(false);
+  // Anchor pre-expand scroll metrics so we can restore viewport position
+  // after older messages mount in (Slack-style).
+  const scrollAnchorRef = useRef(null);
+  // Reset the window whenever the conversation actually changes (length
+  // dropped or first user message id swapped). Keep it expanded as new
+  // messages stream in.
+  const firstId = messages[0]?.id ?? messages[0]?.content;
+  useEffect(() => {
+    setShowAll(false);
+  }, [firstId]);
+
+  const hiddenCount = Math.max(0, messages.length - MESSAGE_WINDOW);
+  const visibleStart = showAll ? 0 : hiddenCount;
+  const visibleMessages = messages.slice(visibleStart);
+
+  // Auto-expand when the user scrolls within 80px of the top of the
+  // windowed view. Mirrors Slack/Telegram "infinite scroll up" UX.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || showAll || hiddenCount === 0) return;
+    const onScroll = () => {
+      if (el.scrollTop < 80) {
+        scrollAnchorRef.current = {
+          prevScrollHeight: el.scrollHeight,
+          prevScrollTop: el.scrollTop,
+        };
+        setShowAll(true);
+      }
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [showAll, hiddenCount]);
+
+  // After older messages mount, keep the visual anchor where it was so
+  // the user isn't jolted to the top of the freshly-mounted history.
+  useLayoutEffect(() => {
+    if (!showAll || !scrollAnchorRef.current) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const { prevScrollHeight, prevScrollTop } = scrollAnchorRef.current;
+    el.scrollTop = prevScrollTop + (el.scrollHeight - prevScrollHeight);
+    scrollAnchorRef.current = null;
+  }, [showAll]);
 
   useEffect(() => {
     if (!containerRef.current || !lastUserRef.current) {
@@ -189,22 +240,48 @@ export default function ChatMessages({ messages, isLoading, isStreaming, lastUse
   }, [messages, isLoading, isStreaming]);
 
   return (
-    <div className="conv chat-messages" ref={containerRef}>
-      <div className="conv-inner">
-        {messages.map((msg, i) => {
-          const isLastUser = msg.role === "user" && i === lastUserIndex;
-          if (msg.role === "user") {
-            return (
-              <div key={i} className="msg user" ref={isLastUser ? lastUserRef : null}>
-                <div className="bubble">{msg.content}</div>
-              </div>
-            );
-          }
-          return <AssistantMessage key={i} msg={msg} />;
-        })}
-        {isLoading && <LoadingBubble />}
-        {spacerHeight > 0 && <div className="chat-spacer" style={{ minHeight: spacerHeight }} />}
+    <div className="chat-messages-wrap">
+      <div className="conv chat-messages" ref={containerRef}>
+        <div className="conv-inner">
+          {hiddenCount > 0 && !showAll && (
+            <button
+              type="button"
+              className="chat-show-older"
+              onClick={() => {
+                const el = containerRef.current;
+                if (el) {
+                  scrollAnchorRef.current = {
+                    prevScrollHeight: el.scrollHeight,
+                    prevScrollTop: el.scrollTop,
+                  };
+                }
+                setShowAll(true);
+              }}
+            >
+              Show {hiddenCount} earlier message{hiddenCount === 1 ? "" : "s"}
+            </button>
+          )}
+          {visibleMessages.map((msg, i) => {
+            const absoluteIdx = visibleStart + i;
+            const isLastUser =
+              msg.role === "user" && absoluteIdx === lastUserIndex;
+            if (msg.role === "user") {
+              return (
+                <div key={absoluteIdx} className="msg user" ref={isLastUser ? lastUserRef : null}>
+                  <div className="bubble">{msg.content}</div>
+                </div>
+              );
+            }
+            return <AssistantMessage key={absoluteIdx} msg={msg} />;
+          })}
+          {isLoading && <LoadingBubble />}
+          {spacerHeight > 0 && <div className="chat-spacer" style={{ minHeight: spacerHeight }} />}
+        </div>
       </div>
+      <ScrollBottomButton
+        targetRef={containerRef}
+        dep={`${messages.length}:${isStreaming ? 1 : 0}`}
+      />
     </div>
   );
 }

@@ -185,9 +185,21 @@ def health():
 
 
 @app.get("/api/conversations")
-async def list_conversations(user_id: str = Depends(current_user_id)):
-    conversations = await get_conversations(user_id)
-    return JSONResponse(conversations)
+async def list_conversations(
+    limit: int = 50,
+    before: str | None = None,
+    user_id: str = Depends(current_user_id),
+):
+    """Newest-first general-chat conversations.
+
+    Cursor pagination: pass `before=<iso updated_at>` to fetch older pages.
+    Response: {items: [...], next_before: <iso|null>, has_more: bool}.
+    """
+    rows = await get_conversations(user_id, limit=limit, before=before)
+    has_more = len(rows) > limit
+    items = rows[:limit]
+    next_before = items[-1]["updated_at"] if has_more and items else None
+    return JSONResponse({"items": items, "has_more": has_more, "next_before": next_before})
 
 
 @app.get("/api/conversations/{conversation_id}")
@@ -610,10 +622,22 @@ DEFAULT_THREAD_TITLE = "Excel workspace"
 
 
 @app.get("/api/workspace/excel/conversations")
-async def list_excel_conversations(user_id: str = Depends(current_user_id)):
-    """All Excel-workspace conversations for this user, newest first."""
-    convs = await list_workspace_conversations(user_id, EXCEL_WORKSPACE)
-    return JSONResponse(convs)
+async def list_excel_conversations(
+    limit: int = 50,
+    before: str | None = None,
+    user_id: str = Depends(current_user_id),
+):
+    """Excel-workspace conversations, newest first.
+
+    Cursor pagination: see /api/conversations for the response shape.
+    """
+    rows = await list_workspace_conversations(
+        user_id, EXCEL_WORKSPACE, limit=limit, before=before
+    )
+    has_more = len(rows) > limit
+    items = rows[:limit]
+    next_before = items[-1]["updated_at"] if has_more and items else None
+    return JSONResponse({"items": items, "has_more": has_more, "next_before": next_before})
 
 
 @app.get("/api/workspace/excel/conversation")

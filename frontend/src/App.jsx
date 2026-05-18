@@ -59,14 +59,44 @@ export default function App() {
     setConversationId(null);
   }, []);
 
+  const [convHasMore, setConvHasMore] = useState(false);
+  const [convNextBefore, setConvNextBefore] = useState(null);
+  const [convLoadingMore, setConvLoadingMore] = useState(false);
+
+  // First page on mount; subsequent pages via `loadMoreConversations`.
   const fetchConversations = useCallback(async () => {
     try {
-      const res = await apiFetch(`/api/conversations`);
+      const res = await apiFetch(`/api/conversations?limit=50`);
       if (!res.ok) return;
       const data = await res.json();
-      setConversations(data);
+      // Accept both shapes (old plain-array AND new {items, …}) so an
+      // older cached frontend doesn't break against a newer backend.
+      const items = Array.isArray(data) ? data : data.items || [];
+      setConversations(items);
+      setConvHasMore(!!(data && data.has_more));
+      setConvNextBefore((data && data.next_before) || null);
     } catch {}
   }, []);
+
+  const loadMoreConversations = useCallback(async () => {
+    if (!convHasMore || !convNextBefore || convLoadingMore) return;
+    setConvLoadingMore(true);
+    try {
+      const res = await apiFetch(
+        `/api/conversations?limit=50&before=${encodeURIComponent(convNextBefore)}`,
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      const items = data.items || [];
+      setConversations((prev) => [...prev, ...items]);
+      setConvHasMore(!!data.has_more);
+      setConvNextBefore(data.next_before || null);
+    } catch {
+      // swallow — non-fatal
+    } finally {
+      setConvLoadingMore(false);
+    }
+  }, [convHasMore, convNextBefore, convLoadingMore]);
 
   // On mount: check existing session. `?slowAuth=N` query param delays the
   // resolution by N seconds — handy for previewing the loading screen.
@@ -355,6 +385,9 @@ export default function App() {
         onNavFiles={() => { closeMobileSidebar(); goToFiles(); }}
         user={user}
         onLogout={handleLogout}
+        hasMoreConversations={convHasMore}
+        loadingMoreConversations={convLoadingMore}
+        onLoadMoreConversations={loadMoreConversations}
       />
       {mobileSidebarOpen && (
         <div
