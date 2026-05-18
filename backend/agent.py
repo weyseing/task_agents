@@ -1,5 +1,11 @@
-"""Agent loop: LiteLLM completion with tool-calling."""
+"""Agent loop: LiteLLM completion with tool-calling.
 
+Generic over the tool set:
+- General agent : toolset='general' — /api/chat
+- Excel agent   : toolset='excel'   — /api/workspace/excel/chat
+"""
+
+import asyncio
 import json
 import logging
 import os
@@ -13,12 +19,34 @@ logger = logging.getLogger(__name__)
 from tools import get_tools, execute_tool
 
 MODEL = os.getenv("LITELLM_MODEL", "anthropic/claude-haiku-4-5")
-MAX_ITERATIONS = 10
+MAX_ITERATIONS = 15
+# Anthropic enforces a 50K input-token/min rate limit on Haiku.
+# Multi-step tool chains hit it; back off and retry rather than fail the turn.
+RATE_LIMIT_RETRIES = 2
+RATE_LIMIT_BACKOFF_SECONDS = 30
+
+
+async def _stream_completion_with_retries(kwargs: dict):
+    """Wrap litellm.acompletion in a retry loop for rate-limit errors."""
+    attempt = 0
+    while True:
+        try:
+            return await litellm.acompletion(**kwargs)
+        except litellm.exceptions.RateLimitError as e:
+            attempt += 1
+            if attempt > RATE_LIMIT_RETRIES:
+                raise
+            logger.warning(
+                "RateLimitError (attempt %d/%d), sleeping %ss",
+                attempt, RATE_LIMIT_RETRIES, RATE_LIMIT_BACKOFF_SECONDS
+            )
+            await asyncio.sleep(RATE_LIMIT_BACKOFF_SECONDS)
 
 
 async def run_agent(
     messages: list[dict],
     user_id: str,
+    toolset: str = "general",
 ) -> AsyncGenerator[dict, None]:
     """
     Run the agent loop, yielding SSE event dicts.
@@ -29,10 +57,9 @@ async def run_agent(
       {"tool_call": dict}    — tool invocation
       {"tool_result": dict}  — tool execution result
 
-    The caller is responsible for wrapping these into SSE frames
-    and for persisting the final state to the database.
+    The caller wraps these into SSE frames and persists final state.
     """
-    tools = get_tools()
+    tools = get_tools(toolset=toolset)
 
     kwargs = dict(
         model=MODEL,
@@ -45,7 +72,16 @@ async def run_agent(
         step_n = iteration + 1
         yield {"step": {"n": step_n, "label": "Thinking"}}
 
-        response = await litellm.acompletion(**kwargs)
+        try:
+            response = await _stream_completion_with_retries(kwargs)
+        except litellm.exceptions.RateLimitError as e:
+            yield {
+                "content": (
+                    "\n\n_Hit the model's rate limit even after retries. "
+                    "Try again in ~30 seconds._\n"
+                )
+            }
+            return
 
         content = ""
         tool_calls_acc: dict[int, dict] = {}
@@ -53,20 +89,15 @@ async def run_agent(
         async for chunk in response:
             delta = chunk.choices[0].delta
 
-            # Stream text content
             if delta.content:
                 content += delta.content
                 yield {"content": delta.content}
 
-            # Accumulate tool-call deltas
             if delta.tool_calls:
                 for tc in delta.tool_calls:
                     idx = tc.index
 
-                    # Detect if model reuses same index for a NEW tool call
-                    # (new id on an index that already has data)
                     if idx in tool_calls_acc and tc.id and tool_calls_acc[idx]["id"] and tc.id != tool_calls_acc[idx]["id"]:
-                        # Bump to a new index
                         idx = max(tool_calls_acc.keys()) + 1
 
                     if idx not in tool_calls_acc:
@@ -82,8 +113,6 @@ async def run_agent(
                         if tc.function.arguments:
                             existing = tool_calls_acc[idx]["function"]["arguments"]
                             fragment = tc.function.arguments
-                            # New complete JSON object on an index that already
-                            # has complete args → treat as a separate tool call
                             if existing.rstrip().endswith("}") and fragment.lstrip().startswith("{"):
                                 new_idx = max(tool_calls_acc.keys()) + 1
                                 tool_calls_acc[new_idx] = {
@@ -98,7 +127,6 @@ async def run_agent(
                             else:
                                 tool_calls_acc[idx]["function"]["arguments"] = fragment
 
-        # No tool calls — final response, done
         if not tool_calls_acc:
             break
 
@@ -109,8 +137,6 @@ async def run_agent(
             ),
         )
 
-        # Build the assistant message (for LLM context on next iteration)
-        # Deduplicate: drop tool calls with the same name + arguments
         seen: set[str] = set()
         tc_list = []
         for idx in sorted(tool_calls_acc):
@@ -123,7 +149,6 @@ async def run_agent(
             if dedup_key in seen:
                 continue
             seen.add(dedup_key)
-            # Ensure every tool call has an id
             if not tc["id"]:
                 tc["id"] = f"call_{uuid.uuid4().hex[:8]}"
             tc_list.append(
@@ -139,7 +164,6 @@ async def run_agent(
             assistant_msg["content"] = content
         messages.append(assistant_msg)
 
-        # Execute each tool
         for tc in tc_list:
             name = tc["function"]["name"]
             try:
@@ -152,7 +176,6 @@ async def run_agent(
             result = await execute_tool(name, args, user_id=user_id)
             yield {"tool_result": {"id": tc["id"], "name": name, "data": result}}
 
-            # Feed result back into LLM context
             messages.append(
                 {
                     "role": "tool",
@@ -161,5 +184,4 @@ async def run_agent(
                 }
             )
 
-        # Update kwargs for next iteration (messages list is mutated in-place)
         kwargs["messages"] = messages
