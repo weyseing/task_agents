@@ -21,6 +21,33 @@
 .row-del:hover {
   background: rgba(15, 23, 42, 0.06);
 }
+/* Hide the folder child-count badge on hover so it doesn't crowd the trash. */
+.tree-row:hover .row-count {
+  opacity: 0;
+}
+.row-count {
+  transition: opacity 0.12s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* Agent panel header chips ("New chat" / history icon) */
+.agent-chip:not(:disabled):hover {
+  background: #EEF1F6 !important;
+  color: #0F172A !important;
+}
+
+/* Shimmering "Thinking" label inside the pending message bubble. */
+.agent-shimmer-label {
+  background: linear-gradient(90deg, #334155 0%, #C8CFDB 50%, #334155 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: agent-shimmer 1.6s ease-in-out infinite;
+}
+@keyframes agent-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
 
 .files-backdrop {
   display: none;

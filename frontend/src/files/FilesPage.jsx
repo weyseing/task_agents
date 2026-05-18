@@ -220,8 +220,28 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
     const content = activeTab.content;
     try {
       await saveContent(id, content);
+      // For sheet files, the backend recomputes formula cells on save —
+      // pull the fresh content so computed values appear without a reload.
+      const isSheet = activeTab.type === "csv" || activeTab.type === "xlsx";
+      const hasFormulas =
+        isSheet &&
+        content &&
+        typeof content === "object" &&
+        content.formulas &&
+        Object.keys(content.formulas).length > 0;
+      let next = content;
+      if (hasFormulas) {
+        try {
+          next = await loadContent(id);
+        } catch {
+          // Save succeeded; refetch failed — keep local content.
+          next = content;
+        }
+      }
       setTabs((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, savedContent: content } : t))
+        prev.map((t) =>
+          t.id === id ? { ...t, content: next, savedContent: next } : t
+        )
       );
     } catch (e) {
       setError(`Save failed: ${e.message}`);
@@ -239,16 +259,65 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const handleDelete = (id, name) => setConfirm({ id, name });
+  // Auto-save + refetch when a formula was just committed in the editor.
+  // We accept the new content directly so we don't race React state batching.
+  const handleCommitFormula = async (content) => {
+    if (!activeTab) return;
+    const id = activeTab.id;
+    try {
+      await saveContent(id, content);
+      const fresh = await loadContent(id);
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === id ? { ...t, content: fresh, savedContent: fresh } : t
+        )
+      );
+    } catch (e) {
+      setError(`Formula save failed: ${e.message}`);
+    }
+  };
+
+  const handleDelete = (id, name, meta = {}) =>
+    setConfirm({ id, name, ...meta });
+
+  // Recursively count all file descendants of a folder so the confirm
+  // dialog can tell the user what they're about to nuke.
+  const countDescendants = (node) => {
+    let files = 0;
+    let folders = 0;
+    for (const c of node?.children || []) {
+      if (c.kind === "file") files += 1;
+      else if (c.kind === "folder") {
+        folders += 1;
+        const sub = countDescendants(c);
+        files += sub.files;
+        folders += sub.folders;
+      }
+    }
+    return { files, folders };
+  };
 
   const performDelete = async () => {
     if (!confirm) return;
     const id = confirm.id;
+    const wasFolder = confirm.kind === "folder";
     try {
       await deleteFile(id);
-      setTabs((prev) => prev.filter((t) => t.id !== id));
-      if (activeId === id) setActiveId(null);
-      // Refetch tree to reflect deletion (handles folder cascades).
+      // Close any open tabs that belonged to the deleted file/folder.
+      if (wasFolder) {
+        const folderNode = fsFind(fs, id);
+        const descendantIds = new Set();
+        const walk = (n) => {
+          if (n?.kind === "file") descendantIds.add(n.id);
+          (n?.children || []).forEach(walk);
+        };
+        walk(folderNode);
+        setTabs((prev) => prev.filter((t) => !descendantIds.has(t.id)));
+        if (descendantIds.has(activeId)) setActiveId(null);
+      } else {
+        setTabs((prev) => prev.filter((t) => t.id !== id));
+        if (activeId === id) setActiveId(null);
+      }
       const tree = await loadTree();
       setFs(tree);
     } catch (e) {
@@ -269,6 +338,51 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
   const handleOpenAndCloseDrawer = (id) => {
     handleOpen(id);
     setMobileSidebar(false);
+  };
+
+  // Called when the Excel agent reports it mutated one or more workbooks.
+  // Reload any of those that are open in tabs. Discards any unsaved local
+  // edits in matching tabs — intentional since the agent's change has
+  // already been persisted to R2.
+  const handleWorkbookMutated = async (mutatedFileIds) => {
+    const idSet = new Set(mutatedFileIds || []);
+    if (idSet.size === 0) return;
+    const toRefresh = tabs.filter((t) => idSet.has(t.id));
+    for (const tab of toRefresh) {
+      try {
+        const fresh = await loadContent(tab.id);
+        setTabs((prev) =>
+          prev.map((t) =>
+            t.id === tab.id ? { ...t, content: fresh, savedContent: fresh } : t
+          )
+        );
+      } catch (e) {
+        setError(`Failed to refresh ${tab.name}: ${e.message}`);
+      }
+    }
+  };
+
+  // Called when the agent CREATES new workbooks. Refresh the tree so
+  // the new files show up in the sidebar.
+  const handleWorkspaceChanged = async () => {
+    try {
+      const tree = await loadTree();
+      setFs(tree);
+      // Auto-expand all folders so new files are visible.
+      const allFolderIds = new Set();
+      const collect = (n) => {
+        if (n.kind === "folder" && n.id !== "root") allFolderIds.add(n.id);
+        (n.children || []).forEach(collect);
+      };
+      collect(tree);
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        allFolderIds.forEach((id) => next.add(id));
+        return next;
+      });
+    } catch (e) {
+      setError(`Failed to refresh tree: ${e.message}`);
+    }
   };
 
   return (
@@ -316,7 +430,6 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
           file={activeTab}
           dirty={activeTab ? dirty.has(activeTab.id) : false}
           onSave={handleSave}
-          onDiscuss={onNavChat}
           onMobileMenu={() => setMobileSidebar(true)}
           onMobileAgent={() => setMobileAgent(true)}
         />
@@ -345,17 +458,20 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
           <EditorFrame
             file={activeTab}
             onChange={handleChange}
+            onCommitFormula={handleCommitFormula}
             dirty={activeTab ? dirty.has(activeTab.id) : false}
           />
         )}
       </div>
       <AgentPanel
         file={activeTab}
+        fileTree={fs}
         width={agentWidth}
         onResizeStart={startResize}
         mobileOpen={mobileAgent}
         onMobileClose={() => setMobileAgent(false)}
-        onOpenFullChat={onNavChat}
+        onWorkbookMutated={handleWorkbookMutated}
+        onWorkspaceChanged={handleWorkspaceChanged}
       />
 
       {(mobileSidebar || mobileAgent) && (
@@ -371,14 +487,32 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
 
       <ConfirmDialog
         open={!!confirm}
-        title="Delete file"
+        title={confirm?.kind === "folder" ? "Delete folder" : "Delete file"}
         body={
           confirm ? (
-            <>
-              Permanently delete{" "}
-              <strong style={{ color: C_INK, fontWeight: 600 }}>{confirm.name}</strong>? This action
-              cannot be undone.
-            </>
+            confirm.kind === "folder" ? (
+              (() => {
+                const node = fsFind(fs, confirm.id);
+                const counts = node ? countDescendants(node) : { files: 0, folders: 0 };
+                const parts = [];
+                if (counts.files) parts.push(`${counts.files} file${counts.files === 1 ? "" : "s"}`);
+                if (counts.folders) parts.push(`${counts.folders} folder${counts.folders === 1 ? "" : "s"}`);
+                const contents = parts.length ? ` and everything inside (${parts.join(", ")})` : "";
+                return (
+                  <>
+                    Permanently delete folder{" "}
+                    <strong style={{ color: C_INK, fontWeight: 600 }}>{confirm.name}</strong>
+                    {contents}? This cannot be undone.
+                  </>
+                );
+              })()
+            ) : (
+              <>
+                Permanently delete{" "}
+                <strong style={{ color: C_INK, fontWeight: 600 }}>{confirm.name}</strong>? This action
+                cannot be undone.
+              </>
+            )
           ) : null
         }
         confirmLabel="Delete"

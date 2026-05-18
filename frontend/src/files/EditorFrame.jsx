@@ -2,7 +2,7 @@ import FileEditor from "./editors";
 import EditorZoom from "./EditorZoom";
 import { C_BG, C_LINE, C_MUTED2, TYPE_META } from "./tokens";
 
-export default function EditorFrame({ file, onChange, dirty }) {
+export default function EditorFrame({ file, onChange, onCommitFormula, dirty }) {
   return (
     <main
       style={{
@@ -16,7 +16,7 @@ export default function EditorFrame({ file, onChange, dirty }) {
     >
       {file ? (
         <EditorZoom fileId={file.id}>
-          <FileEditor file={file} onChange={onChange} />
+          <FileEditor file={file} onChange={onChange} onCommitFormula={onCommitFormula} />
         </EditorZoom>
       ) : (
         <FileEditor file={file} onChange={onChange} />

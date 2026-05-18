@@ -238,6 +238,7 @@ function TreeNode({ node, depth, isRoot, activeId, expanded, onToggle, onOpen, o
   const isOpen = expanded.has(node.id) || isRoot;
 
   if (node.kind === "folder") {
+    const childCount = (node.children || []).length;
     return (
       <div>
         {!isRoot && (
@@ -256,9 +257,34 @@ function TreeNode({ node, depth, isRoot, activeId, expanded, onToggle, onOpen, o
             >
               {node.name}
             </span>
-            <span style={{ fontSize: 10, color: C_MUTED2, fontFamily: "ui-monospace, monospace" }}>
-              {(node.children || []).length}
+            <span
+              className="row-count"
+              style={{ fontSize: 10, color: C_MUTED2, fontFamily: "ui-monospace, monospace" }}
+            >
+              {childCount}
             </span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(node.id, node.name, { kind: "folder", childCount });
+              }}
+              title="Delete folder"
+              className="row-del"
+              style={{
+                width: 20,
+                height: 20,
+                border: "none",
+                background: "transparent",
+                color: C_MUTED,
+                cursor: "pointer",
+                borderRadius: 5,
+                display: "grid",
+                placeItems: "center",
+                transition: `opacity .12s ${C_EASE}, background .12s ${C_EASE}`,
+              }}
+            >
+              <TrashGlyph />
+            </button>
           </Row>
         )}
         {isOpen &&
@@ -298,7 +324,7 @@ function TreeNode({ node, depth, isRoot, activeId, expanded, onToggle, onOpen, o
       <button
         onClick={(e) => {
           e.stopPropagation();
-          onDelete(node.id, node.name);
+          onDelete(node.id, node.name, { kind: "file", type: node.type });
         }}
         title="Delete"
         className="row-del"

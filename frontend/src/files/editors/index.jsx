@@ -7,7 +7,7 @@ import PptxViewer from "./PptxViewer";
 import PdfViewer from "./PdfViewer";
 import ImageViewer from "./ImageViewer";
 
-export default function FileEditor({ file, onChange }) {
+export default function FileEditor({ file, onChange, onCommitFormula }) {
   if (!file) return <EmptyEditor />;
   switch (file.type) {
     case "md":
@@ -17,7 +17,7 @@ export default function FileEditor({ file, onChange }) {
       return <TextEditor file={file} onChange={onChange} />;
     case "csv":
     case "xlsx":
-      return <SheetEditor file={file} onChange={onChange} />;
+      return <SheetEditor file={file} onChange={onChange} onCommitFormula={onCommitFormula} />;
     case "docx":
       return <DocxEditor file={file} onChange={onChange} />;
     case "pptx":

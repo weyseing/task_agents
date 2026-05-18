@@ -13,18 +13,24 @@ export default function ConfirmDialog({ open, title, body, confirmLabel, onConfi
         alignItems: "center",
         justifyContent: "center",
         backdropFilter: "blur(2px)",
+        // Gutter so the dialog never butts against the viewport on small screens.
+        padding: 16,
       }}
       onClick={onCancel}
     >
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: 400,
+          // Desktop: 400px. Mobile: shrink to whatever fits in the gutters.
+          width: "100%",
+          maxWidth: 400,
           background: C_BG,
           borderRadius: 14,
           boxShadow: "0 30px 60px -20px rgba(15,23,42,0.4)",
           padding: "22px 22px 18px",
           border: `1px solid ${C_LINE}`,
+          maxHeight: "calc(100vh - 32px)",
+          overflowY: "auto",
         }}
       >
         <div style={{ fontSize: 16, fontWeight: 600, color: C_INK, letterSpacing: "-0.015em" }}>
