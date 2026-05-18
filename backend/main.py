@@ -3,7 +3,7 @@ import os
 from contextlib import asynccontextmanager
 from datetime import date
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
@@ -486,6 +486,56 @@ async def remove_file(
     await delete_file_row(file_id, user_id)
     await storage.delete_many(keys)
     return JSONResponse({"ok": True, "r2_objects_deleted": len(keys)})
+
+
+# --- Upload (csv/xlsx only) ---
+
+
+@app.post("/api/files/upload")
+async def upload_files(
+    files: list[UploadFile] = File(...),
+    parent_id: str | None = Form(None),
+    user_id: str = Depends(current_user_id),
+):
+    """Multipart upload. Only .csv and .xlsx are accepted. xlsx workbooks
+    with multiple sheets are stored as the multi-sheet shape."""
+    import upload as upload_mod
+
+    if not files:
+        raise HTTPException(status_code=400, detail="no files attached")
+    if parent_id and not await file_belongs_to(parent_id, user_id):
+        raise HTTPException(status_code=404, detail="parent folder not found")
+
+    created: list[dict] = []
+    skipped: list[dict] = []
+
+    for f in files:
+        blob = await f.read()
+        try:
+            ftype, content = upload_mod.parse_upload(f.filename or "", blob)
+        except ValueError as e:
+            skipped.append({"name": f.filename, "reason": str(e)})
+            continue
+
+        row = await create_file_row(
+            user_id,
+            name=f.filename,
+            kind="file",
+            type=ftype,
+            parent_id=parent_id,
+        )
+        payload = json.dumps(content).encode("utf-8")
+        key = storage.object_key(user_id, row["id"])
+        await storage.put(key, payload, content_type="application/json")
+        await set_file_r2_key_and_size(row["id"], user_id, key, len(payload))
+        row["r2_key"] = key
+        row["size"] = len(payload)
+        # Surface sheet count so the frontend can show a hint.
+        if "sheets" in content:
+            row["sheet_count"] = len(content["sheets"])
+        created.append(row)
+
+    return JSONResponse({"created": created, "skipped": skipped})
 
 
 # --- Export ---

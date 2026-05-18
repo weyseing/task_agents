@@ -42,6 +42,17 @@ export async function deleteFile(fileId) {
   return r.json();
 }
 
+// Multipart upload. `files` is a FileList or array of File. Backend
+// only accepts .csv and .xlsx — anything else lands in `skipped`.
+export async function uploadFiles(files, parentId = null) {
+  const fd = new FormData();
+  for (const f of files) fd.append("files", f);
+  if (parentId) fd.append("parent_id", parentId);
+  const r = await apiFetch("/api/files/upload", { method: "POST", body: fd });
+  if (!r.ok) throw new Error(`upload failed: ${r.status}`);
+  return r.json();
+}
+
 // --- Pure helpers ---
 
 export function fsFind(node, id) {

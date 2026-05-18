@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { C_CANVAS, C_INK, C_INK2, C_LINE, C_MUTED, C_MUTED2 } from "../tokens";
 
-// Storage shape: { columns: [...], rows: [[...]], formulas?: { "A2": "=...", ... } }
-// Address convention: row 1 = header, row 2 = first data row.
+// Storage shapes (backend persists either):
+//   1) Flat:        { columns, rows, formulas? }                — csv, single-sheet xlsx
+//   2) Multi-sheet: { sheets: [{name, columns, rows, formulas?}, ...] }  — xlsx with >1 sheet
+// Address convention within a sheet: row 1 = header, row 2 = first data row.
 // formulas keyed by A1 notation.
 
 function colLetter(i) {
@@ -26,19 +28,134 @@ function isFormulaInput(s) {
 }
 
 export default function SheetEditor({ file, onChange, onCommitFormula }) {
-  const { columns, rows } = file.content;
-  const formulas = file.content.formulas || {};
+  // Multi-sheet support: detect and route through a per-sheet view.
+  const isMultiSheet =
+    file.content && Array.isArray(file.content.sheets) && file.content.sheets.length > 0;
+  const [activeSheet, setActiveSheet] = useState(0);
+
+  // If the underlying file changed, snap back to the first sheet.
+  useEffect(() => {
+    setActiveSheet(0);
+  }, [file.id]);
+
+  if (isMultiSheet) {
+    const sheets = file.content.sheets;
+    const idx = Math.min(activeSheet, sheets.length - 1);
+    const current = sheets[idx] || { columns: [], rows: [], formulas: {} };
+    const handleSheetChange = (next) => {
+      const nextSheets = sheets.map((s, i) =>
+        i === idx
+          ? {
+              name: s.name,
+              columns: next.columns,
+              rows: next.rows,
+              ...(next.formulas ? { formulas: next.formulas } : {}),
+            }
+          : s
+      );
+      onChange({ sheets: nextSheets });
+    };
+    const handleSheetCommitFormula = (next) => {
+      const nextSheets = sheets.map((s, i) =>
+        i === idx
+          ? {
+              name: s.name,
+              columns: next.columns,
+              rows: next.rows,
+              ...(next.formulas ? { formulas: next.formulas } : {}),
+            }
+          : s
+      );
+      onCommitFormula && onCommitFormula({ sheets: nextSheets });
+    };
+    return (
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: C_CANVAS }}>
+        <SingleSheetView
+          key={`${file.id}:${idx}`}
+          content={{
+            columns: current.columns || [],
+            rows: current.rows || [],
+            formulas: current.formulas || {},
+          }}
+          onChange={handleSheetChange}
+          onCommitFormula={handleSheetCommitFormula}
+        />
+        <SheetTabs
+          sheets={sheets}
+          active={idx}
+          onSelect={setActiveSheet}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <SingleSheetView
+      key={file.id}
+      content={file.content}
+      onChange={onChange}
+      onCommitFormula={onCommitFormula}
+    />
+  );
+}
+
+
+function SheetTabs({ sheets, active, onSelect }) {
+  return (
+    <div
+      style={{
+        borderTop: `1px solid ${C_LINE}`,
+        background: "#F8FAFC",
+        display: "flex",
+        gap: 2,
+        padding: "4px 12px",
+        overflowX: "auto",
+        flexShrink: 0,
+      }}
+    >
+      {sheets.map((s, i) => {
+        const isActive = i === active;
+        return (
+          <button
+            key={i}
+            type="button"
+            onClick={() => onSelect(i)}
+            title={s.name || `Sheet${i + 1}`}
+            style={{
+              border: "none",
+              background: isActive ? "#fff" : "transparent",
+              boxShadow: isActive
+                ? `inset 0 1px 0 ${C_LINE}, inset 1px 0 0 ${C_LINE}, inset -1px 0 0 ${C_LINE}`
+                : "none",
+              padding: "6px 14px",
+              fontSize: 12,
+              fontWeight: isActive ? 600 : 500,
+              color: isActive ? C_INK : C_MUTED2,
+              cursor: "pointer",
+              fontFamily: '"Sora", system-ui',
+              borderRadius: "6px 6px 0 0",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {s.name || `Sheet${i + 1}`}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+
+function SingleSheetView({ content, onChange, onCommitFormula }) {
+  const columns = content.columns || [];
+  const rows = content.rows || [];
+  const formulas = content.formulas || {};
 
   // Active cell: {row, col} in 1-indexed address space (header=1, data=2..N+1)
   const [active, setActive] = useState({ row: 2, col: 1 });
   // While editing, we track the in-flight text. Submitting commits to content.
   const [editing, setEditing] = useState(null); // { row, col, value }
   const formulaBarRef = useRef(null);
-
-  // Reset editing whenever the underlying file changes (e.g. agent mutation).
-  useEffect(() => {
-    setEditing(null);
-  }, [file.id]);
 
   const activeAddr = addrFor(active.row, active.col);
   const activeFormula = formulas[activeAddr];

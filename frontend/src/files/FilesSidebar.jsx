@@ -36,7 +36,16 @@ export default function FilesSidebar({
   onDelete,
   onNavChat,
   onLogout,
+  onUpload,
 }) {
+  const fileInputRef = useRef(null);
+  const handlePickFiles = () => fileInputRef.current?.click();
+  const handleFilesChosen = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length && onUpload) onUpload(files);
+    // Reset so picking the same file twice in a row still fires onChange.
+    e.target.value = "";
+  };
 
   if (collapsed) {
     return (
@@ -149,11 +158,23 @@ export default function FilesSidebar({
           }}
         >
           <span>Files</span>
-          <IconBtn title="New file" inline>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-          </IconBtn>
+          <div style={{ display: "flex", gap: 4 }}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              multiple
+              onChange={handleFilesChosen}
+              style={{ display: "none" }}
+            />
+            <IconBtn title="Upload csv/xlsx" inline onClick={handlePickFiles}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 16V4" />
+                <path d="M7 9l5-5 5 5" />
+                <path d="M5 20h14" />
+              </svg>
+            </IconBtn>
+          </div>
         </div>
         <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 2 }}>
           <TreeNode

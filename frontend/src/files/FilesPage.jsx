@@ -11,6 +11,7 @@ import {
   saveContent,
   deleteFile,
   fsFind,
+  uploadFiles,
 } from "./fsData";
 import { C_BG, C_INK, C_PAGE } from "./tokens";
 import "./FilesPage.css";
@@ -66,6 +67,8 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
       : AGENT_DEFAULT;
   });
   const [resizing, setResizing] = useState(false);
+  // Upload toast state: null = hidden; otherwise { phase: 'uploading'|'done', count, names }
+  const [uploadStatus, setUploadStatus] = useState(null);
 
   const startResize = (e) => {
     e.preventDefault();
@@ -172,24 +175,37 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
       setActiveId(node.id);
       return;
     }
-    let content = "";
-    try {
-      content = await loadContent(node.id);
-    } catch (e) {
-      setError(`Failed to load ${node.name}: ${e.message}`);
-      return;
-    }
+    // Optimistically add the tab in a loading state so the editor shows a
+    // skeleton/spinner immediately instead of an empty pane while content
+    // streams in from R2.
     setTabs((prev) => [
       ...prev,
       {
         id: node.id,
         name: node.name,
         type: node.type,
-        content,
-        savedContent: content,
+        content: null,
+        savedContent: null,
+        loading: true,
       },
     ]);
     setActiveId(node.id);
+    let content = "";
+    try {
+      content = await loadContent(node.id);
+    } catch (e) {
+      // Remove the placeholder tab on failure.
+      setTabs((prev) => prev.filter((t) => t.id !== node.id));
+      setError(`Failed to load ${node.name}: ${e.message}`);
+      return;
+    }
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === node.id
+          ? { ...t, content, savedContent: content, loading: false }
+          : t
+      )
+    );
   }
 
   const handleOpen = (id) => {
@@ -340,6 +356,50 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
     setMobileSidebar(false);
   };
 
+  const handleUpload = async (files) => {
+    const names = Array.from(files || []).map((f) => f.name);
+    setUploadStatus({ phase: "uploading", count: names.length, names });
+    try {
+      const res = await uploadFiles(files);
+      if (res.skipped?.length) {
+        const msg = res.skipped
+          .map((s) => `${s.name}: ${s.reason}`)
+          .join("; ");
+        setError(`Skipped: ${msg}`);
+      }
+      // Refresh the tree so newly-uploaded files appear.
+      const tree = await loadTree();
+      setFs(tree);
+      const allFolderIds = new Set();
+      const collect = (n) => {
+        if (n.kind === "folder" && n.id !== "root") allFolderIds.add(n.id);
+        (n.children || []).forEach(collect);
+      };
+      collect(tree);
+      setExpanded((prev) => {
+        const next = new Set(prev);
+        allFolderIds.forEach((id) => next.add(id));
+        return next;
+      });
+      // Auto-open the first uploaded file so the user sees something.
+      if (res.created?.length) {
+        const first = res.created[0];
+        const node = fsFind(tree, first.id);
+        if (node) openFile(node);
+      }
+      setUploadStatus({
+        phase: "done",
+        count: res.created?.length || 0,
+        skipped: res.skipped?.length || 0,
+      });
+      // Auto-dismiss the "done" toast — matches the CSS fade-out delay.
+      setTimeout(() => setUploadStatus(null), 1900);
+    } catch (e) {
+      setError(`Upload failed: ${e.message}`);
+      setUploadStatus(null);
+    }
+  };
+
   // Called when the Excel agent reports it mutated one or more workbooks.
   // Reload any of those that are open in tabs. Discards any unsaved local
   // edits in matching tabs — intentional since the agent's change has
@@ -416,6 +476,7 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
         onDelete={handleDelete}
         onNavChat={onNavChat}
         onLogout={onLogout}
+        onUpload={handleUpload}
       />
       <div
         style={{
@@ -483,6 +544,35 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
           }}
           aria-hidden="true"
         />
+      )}
+
+      {uploadStatus && (
+        <div
+          className={`files-upload-toast${uploadStatus.phase === "done" ? " done" : ""}`}
+          role="status"
+          aria-live="polite"
+        >
+          {uploadStatus.phase === "uploading" ? (
+            <>
+              <span className="spinner" aria-hidden="true" />
+              <span>
+                Uploading {uploadStatus.count} file{uploadStatus.count === 1 ? "" : "s"}…
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="check" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 8.5l3.2 3L13 4.5" />
+                </svg>
+              </span>
+              <span>
+                Uploaded {uploadStatus.count} file{uploadStatus.count === 1 ? "" : "s"}
+                {uploadStatus.skipped ? ` · skipped ${uploadStatus.skipped}` : ""}
+              </span>
+            </>
+          )}
+        </div>
       )}
 
       <ConfirmDialog

@@ -44,7 +44,9 @@ export default function TabStrip({ tabs, activeId, dirty, onActivate, onClose })
             <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {t.name}
             </span>
-            {dirty.has(t.id) ? (
+            {t.loading ? (
+              <span className="tab-strip-loading-dot" aria-label="Loading" />
+            ) : dirty.has(t.id) ? (
               <span
                 title="Unsaved"
                 style={{

@@ -34,14 +34,68 @@ logger = logging.getLogger(__name__)
 EMPTY_SHEET = {"columns": [], "rows": []}
 
 
-async def _load_sheet(file_id: str, user_id: str) -> dict:
+def _norm_sheet_fields(columns, rows, formulas) -> tuple[list[str], list[list[str]], dict[str, str]]:
+    """Coerce one sheet's columns/rows/formulas into the canonical string shapes."""
+    columns = [str(c) for c in (columns or [])]
+    rows = [[("" if c is None else str(c)) for c in r] for r in (rows or [])]
+    width = len(columns)
+    for r in rows:
+        while len(r) < width:
+            r.append("")
+    if not isinstance(formulas, dict):
+        formulas = {}
+    formulas = {
+        k: str(v) for k, v in formulas.items()
+        if isinstance(k, str) and isinstance(v, str)
+    }
+    return columns, rows, formulas
+
+
+def _resolve_sheet_index(sheets_list: list, sheet: str | int | None) -> int:
+    """Resolve a sheet ref (name, 0-based index, or None) to an index into sheets_list."""
+    if sheet is None or sheet == "":
+        return 0
+    if isinstance(sheet, int):
+        if 0 <= sheet < len(sheets_list):
+            return sheet
+        raise ValueError(f"sheet index {sheet} out of range (0..{len(sheets_list)-1})")
+    s = str(sheet).strip()
+    if s.lstrip("-").isdigit():
+        idx = int(s)
+        if 0 <= idx < len(sheets_list):
+            return idx
+        raise ValueError(f"sheet index {idx} out of range (0..{len(sheets_list)-1})")
+    target = s.lower()
+    for i, sh in enumerate(sheets_list):
+        if str((sh or {}).get("name") or "").strip().lower() == target:
+            return i
+    names = [str((sh or {}).get("name") or "") for sh in sheets_list]
+    raise ValueError(f"sheet {sheet!r} not found. Available sheets: {names}")
+
+
+async def _load_sheet(file_id: str, user_id: str, sheet: str | int | None = None) -> dict:
+    """Load one sheet of a workbook.
+
+    For multi-sheet xlsx (content has a `sheets` array), resolves `sheet` by
+    name/index and returns the chosen sheet; the full sheet list is stashed
+    on the returned dict so `_save_sheet` can write back without losing siblings.
+    For legacy flat content, ignores `sheet` and returns the single sheet.
+    """
     row = await get_file(file_id, user_id)
     if not row:
         raise ValueError(f"File {file_id} not found")
     if row["kind"] != "file":
         raise ValueError(f"{file_id} is not a file")
     if not row["r2_key"]:
-        return {"_row": row, "columns": [], "rows": [], "formulas": {}}
+        return {
+            "_row": row,
+            "_multi": False,
+            "_active": 0,
+            "name": "Sheet1",
+            "columns": [],
+            "rows": [],
+            "formulas": {},
+        }
     raw = await storage.get(row["r2_key"])
     try:
         content = json.loads(raw.decode("utf-8"))
@@ -49,24 +103,37 @@ async def _load_sheet(file_id: str, user_id: str) -> dict:
         content = {}
     if not isinstance(content, dict):
         content = {}
-    columns = content.get("columns") or []
-    rows = content.get("rows") or []
-    formulas = content.get("formulas") or {}
-    # Normalise to strings for consistent agent behavior.
-    columns = [str(c) for c in columns]
-    rows = [[("" if c is None else str(c)) for c in r] for r in rows]
-    width = len(columns)
-    for r in rows:
-        while len(r) < width:
-            r.append("")
-    # Drop formulas pointing at addresses outside the current grid.
-    if not isinstance(formulas, dict):
-        formulas = {}
-    formulas = {
-        k: str(v) for k, v in formulas.items()
-        if isinstance(k, str) and isinstance(v, str)
+
+    sheets_list = content.get("sheets")
+    if isinstance(sheets_list, list) and sheets_list:
+        idx = _resolve_sheet_index(sheets_list, sheet)
+        s = sheets_list[idx] or {}
+        columns, rows, formulas = _norm_sheet_fields(
+            s.get("columns"), s.get("rows"), s.get("formulas")
+        )
+        return {
+            "_row": row,
+            "_multi": True,
+            "_all_sheets": sheets_list,
+            "_active": idx,
+            "name": str(s.get("name") or f"Sheet{idx+1}"),
+            "columns": columns,
+            "rows": rows,
+            "formulas": formulas,
+        }
+
+    columns, rows, formulas = _norm_sheet_fields(
+        content.get("columns"), content.get("rows"), content.get("formulas")
+    )
+    return {
+        "_row": row,
+        "_multi": False,
+        "_active": 0,
+        "name": "Sheet1",
+        "columns": columns,
+        "rows": rows,
+        "formulas": formulas,
     }
-    return {"_row": row, "columns": columns, "rows": rows, "formulas": formulas}
 
 
 def _recompute_formulas(sheet: dict) -> None:
@@ -164,24 +231,29 @@ def _recompute_formulas(sheet: dict) -> None:
 def recompute_content(content: dict) -> dict:
     """Public helper: take a raw sheet content dict, recompute its formula
     cells (if any), and return the updated dict. Used by /api/files PUT so
-    UI-side formula edits evaluate the same way agent edits do."""
+    UI-side formula edits evaluate the same way agent edits do.
+
+    Handles both the legacy flat shape and the multi-sheet `sheets` shape.
+    """
     if not isinstance(content, dict):
         return content
-    columns = [str(c) for c in (content.get("columns") or [])]
-    rows = [[("" if c is None else str(c)) for c in r] for r in (content.get("rows") or [])]
-    width = len(columns)
-    for r in rows:
-        while len(r) < width:
-            r.append("")
-    formulas = content.get("formulas") or {}
-    if not isinstance(formulas, dict):
-        formulas = {}
-    formulas = {
-        k: str(v) for k, v in formulas.items()
-        if isinstance(k, str) and isinstance(v, str)
-    }
+    if isinstance(content.get("sheets"), list):
+        out_sheets = []
+        for i, s in enumerate(content["sheets"]):
+            if not isinstance(s, dict):
+                continue
+            inner = recompute_content(
+                {"columns": s.get("columns"), "rows": s.get("rows"), "formulas": s.get("formulas")}
+            )
+            inner["name"] = str(s.get("name") or f"Sheet{i+1}")
+            out_sheets.append(inner)
+        return {"sheets": out_sheets}
+    columns, rows, formulas = _norm_sheet_fields(
+        content.get("columns"), content.get("rows"), content.get("formulas")
+    )
     fake_sheet = {
         "_row": None,
+        "_multi": False,
         "columns": columns,
         "rows": rows,
         "formulas": formulas,
@@ -220,12 +292,25 @@ async def _save_sheet(sheet: dict, file_id: str, user_id: str) -> None:
     _prune_invalid_formulas(sheet)
     _recompute_formulas(sheet)
     row = sheet["_row"]
-    content = {
+    sheet_content: dict = {
         "columns": sheet["columns"],
         "rows": sheet["rows"],
     }
     if sheet.get("formulas"):
-        content["formulas"] = sheet["formulas"]
+        sheet_content["formulas"] = sheet["formulas"]
+
+    if sheet.get("_multi"):
+        # Multi-sheet workbook: splice the modified sheet back into the array.
+        idx = sheet["_active"]
+        all_sheets = list(sheet["_all_sheets"])
+        sheet_content["name"] = sheet.get("name") or (
+            (all_sheets[idx] or {}).get("name") if idx < len(all_sheets) else None
+        ) or f"Sheet{idx+1}"
+        all_sheets[idx] = sheet_content
+        content: dict = {"sheets": all_sheets}
+    else:
+        content = sheet_content
+
     payload = json.dumps(content).encode("utf-8")
     key = row["r2_key"] or storage.object_key(user_id, file_id)
     await storage.put(key, payload, content_type="application/json")
@@ -531,9 +616,10 @@ SCHEMA_FILTER = {
 
 async def handler_read(
     *, user_id: str, file: str | None = None, limit: int = 100, offset: int = 0,
+    sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
     except ValueError as e:
         return {"error": str(e)}
     columns = sheet["columns"]
@@ -556,6 +642,7 @@ async def handler_read(
     return {
         "type": "sheet_view",
         "file_id": fid,
+        "sheet": sheet.get("name"),
         "columns": [{"index": i, "letter": _col_letter(i), "header": h} for i, h in enumerate(columns)],
         "rows": sliced,
         "row_count": total,
@@ -565,10 +652,10 @@ async def handler_read(
 
 
 async def handler_set_cells(
-    *, user_id: str, file: str | None = None, updates: list,
+    *, user_id: str, file: str | None = None, updates: list, sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
     except ValueError as e:
         return {"error": str(e)}
     columns = sheet["columns"]
@@ -599,10 +686,10 @@ async def handler_set_cells(
 
 
 async def handler_add_rows(
-    *, user_id: str, file: str | None = None, rows: list,
+    *, user_id: str, file: str | None = None, rows: list, sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
     except ValueError as e:
         return {"error": str(e)}
     columns = sheet["columns"]
@@ -628,10 +715,10 @@ async def handler_add_rows(
 
 
 async def handler_delete_rows(
-    *, user_id: str, file: str | None = None, indices: list,
+    *, user_id: str, file: str | None = None, indices: list, sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
     except ValueError as e:
         return {"error": str(e)}
     rows = sheet["rows"]
@@ -684,10 +771,10 @@ def _eval_formula(expr: str, columns: list[str], row: list[str]) -> str:
 
 
 async def handler_add_columns(
-    *, user_id: str, file: str | None = None, columns: list,
+    *, user_id: str, file: str | None = None, columns: list, sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
     except ValueError as e:
         return {"error": str(e)}
     added = 0
@@ -719,10 +806,10 @@ async def handler_add_columns(
 
 
 async def handler_delete_columns(
-    *, user_id: str, file: str | None = None, columns: list,
+    *, user_id: str, file: str | None = None, columns: list, sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
     except ValueError as e:
         return {"error": str(e)}
     indices = []
@@ -746,10 +833,10 @@ async def handler_delete_columns(
 
 
 async def handler_set_headers(
-    *, user_id: str, file: str | None = None, renames: list,
+    *, user_id: str, file: str | None = None, renames: list, sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
     except ValueError as e:
         return {"error": str(e)}
     applied = 0
@@ -766,10 +853,10 @@ async def handler_set_headers(
 
 async def handler_replace_all(
     *, user_id: str, file: str | None = None,
-    columns: list, rows: list,
+    columns: list, rows: list, sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
     except ValueError as e:
         return {"error": str(e)}
     sheet["columns"] = [str(c) for c in (columns or [])]
@@ -808,10 +895,10 @@ def _matches(row: list[str], columns: list[str], where: dict) -> bool:
 async def handler_compute(
     *, user_id: str, file: str | None = None,
     op: str, column: str | None = None,
-    where: dict | None = None, group_by: str | None = None,
+    where: dict | None = None, group_by: str | None = None, sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
     except ValueError as e:
         return {"error": str(e)}
     columns = sheet["columns"]
@@ -881,10 +968,10 @@ async def handler_compute(
 
 async def handler_sort(
     *, user_id: str, file: str | None = None,
-    column: str, order: str = "asc",
+    column: str, order: str = "asc", sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
     except ValueError as e:
         return {"error": str(e)}
     try:
@@ -911,10 +998,10 @@ async def handler_sort(
 
 async def handler_filter(
     *, user_id: str, file: str | None = None,
-    where: dict | None = None, contains: dict | None = None, limit: int = 50,
+    where: dict | None = None, contains: dict | None = None, limit: int = 50, sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
     except ValueError as e:
         return {"error": str(e)}
     columns = sheet["columns"]
@@ -987,9 +1074,11 @@ async def _resolve_file(user_id: str, ref: str | None) -> tuple[str, dict]:
     return matches[0]["id"], matches[0]
 
 
-async def _load_sheet_by_ref(user_id: str, ref: str | None) -> tuple[str, dict]:
+async def _load_sheet_by_ref(
+    user_id: str, ref: str | None, sheet: str | int | None = None,
+) -> tuple[str, dict]:
     fid, _row = await _resolve_file(user_id, ref)
-    return fid, await _load_sheet(fid, user_id)
+    return fid, await _load_sheet(fid, user_id, sheet=sheet)
 
 
 async def _create_workbook(
@@ -1289,10 +1378,10 @@ def _describe_one(header: str, values: list[str]) -> dict:
 
 
 async def handler_describe(
-    *, user_id: str, columns: list[str] | None = None, file: str | None = None
+    *, user_id: str, columns: list[str] | None = None, file: str | None = None, sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
     except ValueError as e:
         return {"error": str(e)}
     all_cols = sheet["columns"]
@@ -1354,10 +1443,10 @@ def _strength(r: float) -> str:
 
 
 async def handler_correlate(
-    *, user_id: str, x: str, y: str, file: str | None = None
+    *, user_id: str, x: str, y: str, file: str | None = None, sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
         xi = _col_index(x, sheet["columns"])
         yi = _col_index(y, sheet["columns"])
     except ValueError as e:
@@ -1387,10 +1476,10 @@ async def handler_correlate(
 
 
 async def handler_value_counts(
-    *, user_id: str, column: str, top: int = 20, file: str | None = None
+    *, user_id: str, column: str, top: int = 20, file: str | None = None, sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
         ci = _col_index(column, sheet["columns"])
     except ValueError as e:
         return {"error": str(e)}
@@ -1413,10 +1502,10 @@ async def handler_value_counts(
 
 
 async def handler_histogram(
-    *, user_id: str, column: str, bins: int = 10, file: str | None = None
+    *, user_id: str, column: str, bins: int = 10, file: str | None = None, sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
         ci = _col_index(column, sheet["columns"])
     except ValueError as e:
         return {"error": str(e)}
@@ -1460,10 +1549,10 @@ async def handler_pivot(
     *, user_id: str, rows: str, values: str,
     columns: str | None = None, aggfunc: str = "sum",
     file: str | None = None, save_as: str | None = None,
-    parent: str | None = None,
+    parent: str | None = None, sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
         ri = _col_index(rows, sheet["columns"])
         vi = _col_index(values, sheet["columns"])
         ci = _col_index(columns, sheet["columns"]) if columns else None
@@ -1548,38 +1637,102 @@ async def handler_workbook_list(*, user_id: str) -> dict:
     for r in all_rows:
         if r["kind"] != "file" or r["type"] not in SHEET_TYPES:
             continue
-        # Cheap row/col count via R2 — only fetch if we have an r2_key.
         cols = 0
         n_rows = 0
+        sheet_names: list[str] = []
         if r["r2_key"]:
             try:
                 raw = await storage.get(r["r2_key"])
                 content = json.loads(raw.decode("utf-8"))
-                cols = len(content.get("columns") or [])
-                n_rows = len(content.get("rows") or [])
+                if isinstance(content.get("sheets"), list) and content["sheets"]:
+                    first = content["sheets"][0] or {}
+                    cols = len(first.get("columns") or [])
+                    n_rows = len(first.get("rows") or [])
+                    sheet_names = [
+                        str((s or {}).get("name") or f"Sheet{i+1}")
+                        for i, s in enumerate(content["sheets"])
+                    ]
+                else:
+                    cols = len(content.get("columns") or [])
+                    n_rows = len(content.get("rows") or [])
             except Exception:
                 pass
-        workbooks.append(
-            {
-                "id": r["id"],
-                "name": r["name"],
-                "type": r["type"],
-                "parent_id": r["parent_id"],
-                "columns": cols,
-                "rows": n_rows,
-            }
-        )
+        entry = {
+            "id": r["id"],
+            "name": r["name"],
+            "type": r["type"],
+            "parent_id": r["parent_id"],
+            "columns": cols,
+            "rows": n_rows,
+        }
+        if sheet_names:
+            entry["sheets"] = sheet_names
+        workbooks.append(entry)
     return {
         "type": "workbook_list",
         "workbooks": workbooks,
     }
 
 
+SCHEMA_WORKBOOK_LIST_SHEETS = {
+    "name": "workbook_list_sheets",
+    "description": (
+        "List sheet names inside an xlsx workbook. Use this BEFORE any "
+        "sheet_* call on a multi-sheet xlsx so you know what to pass as `sheet`."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "file": {"type": "string", "description": "Workbook name (e.g. 'orders.xlsx')"},
+        },
+        "required": ["file"],
+    },
+}
+
+
+async def handler_workbook_list_sheets(*, user_id: str, file: str) -> dict:
+    try:
+        fid, _row = await _resolve_file(user_id, file)
+    except ValueError as e:
+        return {"error": str(e)}
+    row = await get_file(fid, user_id)
+    if not row or not row.get("r2_key"):
+        return {"type": "workbook_sheets", "file_id": fid, "sheets": []}
+    try:
+        raw = await storage.get(row["r2_key"])
+        content = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return {"type": "workbook_sheets", "file_id": fid, "sheets": []}
+
+    out: list[dict] = []
+    if isinstance(content.get("sheets"), list) and content["sheets"]:
+        for i, s in enumerate(content["sheets"]):
+            s = s or {}
+            out.append(
+                {
+                    "index": i,
+                    "name": str(s.get("name") or f"Sheet{i+1}"),
+                    "rows": len(s.get("rows") or []),
+                    "columns": len(s.get("columns") or []),
+                }
+            )
+    else:
+        out.append(
+            {
+                "index": 0,
+                "name": "Sheet1",
+                "rows": len(content.get("rows") or []),
+                "columns": len(content.get("columns") or []),
+            }
+        )
+    return {"type": "workbook_sheets", "file_id": fid, "sheets": out}
+
+
 async def handler_workbook_peek(
-    *, user_id: str, file: str, limit: int = 10
+    *, user_id: str, file: str, limit: int = 10, sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
     except ValueError as e:
         return {"error": str(e)}
     n = max(1, int(limit or 10))
@@ -1658,10 +1811,11 @@ async def handler_workbook_join(
     *, user_id: str, left: str, right: str, save_as: str,
     on: str | None = None, left_on: str | None = None, right_on: str | None = None,
     how: str = "inner", parent: str | None = None,
+    left_sheet: str | int | None = None, right_sheet: str | int | None = None,
 ) -> dict:
     try:
-        l_fid, l_sheet = await _load_sheet_by_ref(user_id, left)
-        r_fid, r_sheet = await _load_sheet_by_ref(user_id, right)
+        l_fid, l_sheet = await _load_sheet_by_ref(user_id, left, sheet=left_sheet)
+        r_fid, r_sheet = await _load_sheet_by_ref(user_id, right, sheet=right_sheet)
     except ValueError as e:
         return {"error": str(e)}
     l_key = left_on or on
@@ -1751,13 +1905,19 @@ async def handler_workbook_concat(
         return {"error": "concat needs at least 2 files"}
     sheets: list[tuple[str, dict]] = []
     for f in files:
+        # Each entry is either a workbook name (str) or {file: name, sheet: name|index}
+        ref = f
+        sheet_ref = None
+        if isinstance(f, dict):
+            ref = f.get("file") or f.get("name")
+            sheet_ref = f.get("sheet")
         try:
-            fid, sheet = await _load_sheet_by_ref(user_id, f)
+            fid, sheet = await _load_sheet_by_ref(user_id, ref, sheet=sheet_ref)
         except ValueError as e:
             return {"error": str(e)}
         # Carry original name through for the optional source column
         src_row = await get_file(fid, user_id)
-        sheets.append((src_row["name"] if src_row else f, sheet))
+        sheets.append((src_row["name"] if src_row else str(ref), sheet))
 
     # Union of headers preserving order of first appearance.
     out_cols: list[str] = []
@@ -1853,10 +2013,10 @@ SCHEMA_ADD_FORMULA_COLUMN = {
 
 
 async def handler_set_formula(
-    *, user_id: str, file: str | None = None, cells: list,
+    *, user_id: str, file: str | None = None, cells: list, sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
     except ValueError as e:
         return {"error": str(e)}
     formulas = dict(sheet.get("formulas") or {})
@@ -1913,10 +2073,10 @@ async def handler_set_formula(
 
 async def handler_add_formula_column(
     *, user_id: str, file: str | None = None,
-    header: str, formula: str,
+    header: str, formula: str, sheet: str | int | None = None,
 ) -> dict:
     try:
-        fid, sheet = await _load_sheet_by_ref(user_id, file)
+        fid, sheet = await _load_sheet_by_ref(user_id, file, sheet=sheet)
     except ValueError as e:
         return {"error": str(e)}
     if not header or not isinstance(header, str):
@@ -2105,3 +2265,73 @@ async def handler_move_item(
         "moved_to": target_name,
         "parent_id": target_id,
     }
+
+
+# --------------------------------------------------------------------
+# Multi-sheet xlsx: inject `sheet` property into every schema whose
+# handler accepts the `sheet` kwarg. Keeping this here (vs. inline in
+# every schema literal) avoids dozens of duplicated description strings.
+# --------------------------------------------------------------------
+
+_SHEET_PROP = {
+    "type": "string",
+    "description": (
+        "For xlsx workbooks with multiple sheets: the sheet to operate on "
+        "(name or 0-based index). Defaults to the first sheet. Call "
+        "workbook_list_sheets first if you don't know the sheet names."
+    ),
+}
+
+for _s in (
+    SCHEMA_READ,
+    SCHEMA_SET_CELLS,
+    SCHEMA_ADD_ROWS,
+    SCHEMA_DELETE_ROWS,
+    SCHEMA_ADD_COLUMNS,
+    SCHEMA_DELETE_COLUMNS,
+    SCHEMA_SET_HEADERS,
+    SCHEMA_REPLACE_ALL,
+    SCHEMA_COMPUTE,
+    SCHEMA_SORT,
+    SCHEMA_FILTER,
+    SCHEMA_DESCRIBE,
+    SCHEMA_CORRELATE,
+    SCHEMA_VALUE_COUNTS,
+    SCHEMA_HISTOGRAM,
+    SCHEMA_PIVOT,
+    SCHEMA_WORKBOOK_PEEK,
+    SCHEMA_SET_FORMULA,
+    SCHEMA_ADD_FORMULA_COLUMN,
+):
+    _s["parameters"]["properties"].setdefault("sheet", _SHEET_PROP)
+
+# Cross-workbook tools take per-side sheet refs instead of a single `sheet`.
+SCHEMA_WORKBOOK_JOIN["parameters"]["properties"].setdefault(
+    "left_sheet", {**_SHEET_PROP, "description": "Sheet to use from `left` (xlsx multi-sheet only)."}
+)
+SCHEMA_WORKBOOK_JOIN["parameters"]["properties"].setdefault(
+    "right_sheet", {**_SHEET_PROP, "description": "Sheet to use from `right` (xlsx multi-sheet only)."}
+)
+# workbook_concat: `files` items can now be either a workbook name or
+# {file, sheet}. Update the items schema to allow both.
+SCHEMA_WORKBOOK_CONCAT["parameters"]["properties"]["files"] = {
+    "type": "array",
+    "description": (
+        "List of workbooks to stack. Each entry is either a workbook name "
+        "(uses first sheet) or an object {file, sheet} to pick a sheet from "
+        "a multi-sheet xlsx."
+    ),
+    "items": {
+        "oneOf": [
+            {"type": "string"},
+            {
+                "type": "object",
+                "properties": {
+                    "file": {"type": "string"},
+                    "sheet": _SHEET_PROP,
+                },
+                "required": ["file"],
+            },
+        ]
+    },
+}
