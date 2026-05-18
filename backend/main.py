@@ -145,6 +145,7 @@ How to work:
 - For data exploration: workbook_peek → sheet_describe / sheet_value_counts / sheet_correlate / sheet_histogram / sheet_pivot.
 - For aggregations (sum/avg/group_by), prefer sheet_compute. Don't do mental math on previewed rows.
 - For multi-file work: workbook_join (merge on a key), workbook_concat (stack rows), workbook_create (write a new report file).
+- For cleanup: workbook_delete removes one or more workbooks. ONLY call it after the user explicitly approves deletion — never delete unprompted, never delete a source workbook (csv/xlsx the user uploaded) without their go-ahead.
 - After mutations or new-file creation, the workspace UI auto-refreshes — just confirm what you did in one sentence.
 - Column refs accept header name, letter (A, B, ..., AA), or 0-based index. Row indices are 0-based, exclude header.
 - For pivots, set save_as if the user wants a persistent report file.
@@ -796,6 +797,9 @@ async def workspace_excel_chat(
         "folder_create",
         "move_item",
     }
+    # Tools that delete files — the frontend needs to drop matching open
+    # tabs AND refresh the tree.
+    DELETING = {"workbook_delete"}
 
     async def event_stream():
         yield json.dumps({"conversation_id": conversation_id})
@@ -804,6 +808,7 @@ async def workspace_excel_chat(
         tool_calls_data: list[dict] = []
         mutated_files: set[str] = set()
         created_files: list[dict] = []
+        deleted_files: list[dict] = []
 
         async for event in run_agent(
             messages, user_id=user_id, toolset="excel"
@@ -826,6 +831,10 @@ async def workspace_excel_chat(
                                     created_files.append(
                                         {"id": saved["id"], "name": saved.get("name")}
                                     )
+                            if tc["name"] in DELETING:
+                                for d in (data.get("deleted") or []):
+                                    if d.get("id"):
+                                        deleted_files.append(d)
                         break
             yield json.dumps(event)
             # Emit incremental refresh hints right after the tool result so
@@ -856,12 +865,19 @@ async def workspace_excel_chat(
                                         }
                                     }
                                 )
+                        if tc_match["name"] in DELETING:
+                            for d in (data.get("deleted") or []):
+                                if d.get("id"):
+                                    yield json.dumps(
+                                        {"file_deleted": {"id": d["id"], "name": d.get("name")}}
+                                    )
 
         yield json.dumps(
             {
                 "done": True,
                 "mutated_files": list(mutated_files),
                 "created_files": created_files,
+                "deleted_files": deleted_files,
             }
         )
 

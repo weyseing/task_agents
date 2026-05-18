@@ -49,14 +49,59 @@
   100% { background-position: -100% 0; }
 }
 
-/* Open-file skeleton: same shimmer, applied to row/cell bars. */
-.files-skeleton-bar {
-  animation: agent-shimmer 1.4s ease-in-out infinite;
-}
-
-/* Spinner used by the open-file overlay and the upload toast. */
+/* Spinner used by the upload toast and inline tab loading. */
 @keyframes files-spin {
   to { transform: rotate(360deg); }
+}
+
+/* Tab strip: keep its native horizontal scrollbar slim and subtle so the
+   strip reads like a normal toolbar, not a content area. */
+.tab-strip::-webkit-scrollbar {
+  height: 4px;
+}
+.tab-strip::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.18);
+  border-radius: 2px;
+}
+.tab-strip::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.32);
+}
+.tab-strip::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Open-file loader: fade + lift in. */
+@keyframes files-loader-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Indeterminate progress bar: a 40%-wide pill that slides L→R and back. */
+@keyframes files-progress-slide {
+  0%   { left: -40%; }
+  50%  { left: 100%; }
+  100% { left: -40%; }
+}
+
+/* Inline "@file" link inside agent replies. Looks like a chip so it's
+   discoverable as clickable, but reads as part of the prose. */
+.chat-file-link {
+  display: inline;
+  border: none;
+  background: rgba(15, 23, 42, 0.05);
+  color: var(--ink, #0F172A);
+  font: inherit;
+  font-weight: 500;
+  padding: 0 6px;
+  margin: 0 1px;
+  border-radius: 5px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.12s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.chat-file-link:hover {
+  background: rgba(15, 23, 42, 0.10);
+  text-decoration: underline;
 }
 
 /* Upload toast: bottom-right pill, slides up + fades in, fades out on done. */
@@ -348,21 +393,49 @@
   /* Files sidebar now reuses .brand-name / .brand-sub / .nav-item classes
      from Sidebar.css — mobile font bumps live there. */
 
-  /* File-tree rows */
+  /* File-tree rows — touch has no hover, so the native `title` tooltip
+     doesn't fire. Allow long names to wrap to two lines instead of being
+     truncated by ellipsis. The flexbox parent allows this naturally as
+     long as the inline overflow rules are relaxed. */
   .tree-row {
     font-size: 14px !important;
     padding: 9px 10px !important;
+    align-items: flex-start;
+  }
+  .tree-row > span {
+    white-space: normal !important;
+    text-overflow: clip !important;
+    overflow: visible !important;
+    word-break: break-word;
+    /* Cap at two lines so a pathological name doesn't push the layout. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden !important;
   }
 
-  /* Tab strip */
+  /* Tab strip — let it scroll sideways instead of crushing tabs to fit.
+     Long tab names then become reachable by swiping. */
   .tab-strip-item {
     font-size: 14px !important;
+    flex: 0 0 auto !important;
+    min-width: 140px !important;
+    max-width: 75vw !important;
   }
 
   /* Top bar — file name and "no file open" placeholder are the only direct
-     text spans in the breadcrumb area. */
+     text spans in the breadcrumb area. Let the file name wrap if it's the
+     only thing left of the toolbar. */
   .files-topbar > div > span {
     font-size: 15px !important;
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    word-break: break-word;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden !important;
   }
   /* Save button */
   .files-topbar button {

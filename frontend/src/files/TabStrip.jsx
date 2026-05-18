@@ -1,9 +1,24 @@
+import { useEffect, useRef } from "react";
 import { FileChip } from "./FileChip";
 import { C_BG, C_EASE, C_INK, C_LINE, C_LINE_SOFT, C_MUTED } from "./tokens";
 
 export default function TabStrip({ tabs, activeId, dirty, onActivate, onClose }) {
+  const stripRef = useRef(null);
+
+  // When the active tab changes, scroll it into view so the user never
+  // has to manually pan the strip to find what they just opened.
+  useEffect(() => {
+    if (!activeId || !stripRef.current) return;
+    const el = stripRef.current.querySelector(`[data-tab-id="${activeId}"]`);
+    if (el && typeof el.scrollIntoView === "function") {
+      el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+    }
+  }, [activeId]);
+
   return (
     <div
+      ref={stripRef}
+      className="tab-strip"
       style={{
         height: 38,
         display: "flex",
@@ -13,8 +28,13 @@ export default function TabStrip({ tabs, activeId, dirty, onActivate, onClose })
         paddingLeft: 12,
         gap: 0,
         flexShrink: 0,
-        overflow: "hidden",
+        // Horizontal scroll once there are more tabs than the strip can hold,
+        // instead of crushing every tab into a sliver. The active tab gets
+        // scrolled into view via the effect below.
+        overflowX: "auto",
+        overflowY: "hidden",
         minWidth: 0,
+        scrollbarWidth: "thin",
       }}
     >
       {tabs.map((t) => {
@@ -22,6 +42,8 @@ export default function TabStrip({ tabs, activeId, dirty, onActivate, onClose })
         return (
           <div
             key={t.id}
+            data-tab-id={t.id}
+            data-active={active ? "true" : "false"}
             onClick={() => onActivate(t.id)}
             className="tab-strip-item"
             title={t.name}
@@ -35,9 +57,12 @@ export default function TabStrip({ tabs, activeId, dirty, onActivate, onClose })
               fontSize: 12.5,
               color: active ? C_INK : C_MUTED,
               fontWeight: active ? 500 : 400,
-              flex: "1 1 0",
-              minWidth: 0,
-              maxWidth: 220,
+              // Natural-width tabs that don't shrink. `min-width` keeps short
+              // names readable; `max-width` caps absurdly long names so a
+              // single tab can't dominate the whole strip.
+              flex: "0 0 auto",
+              minWidth: 120,
+              maxWidth: 240,
               borderRight: `1px solid ${C_LINE_SOFT}`,
             }}
           >

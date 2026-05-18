@@ -2232,6 +2232,67 @@ async def handler_folder_create(
     }
 
 
+SCHEMA_WORKBOOK_DELETE = {
+    "name": "workbook_delete",
+    "description": (
+        "Permanently delete one or more workbooks (csv/xlsx) the user owns. "
+        "Use this to remove intermediate / scratch files after the user has "
+        "approved the final outputs. Pass a list of workbook names. Returns "
+        "which were deleted and which couldn't be resolved. NEVER call this "
+        "without the user's explicit go-ahead."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "files": {
+                "type": "array",
+                "description": "Workbook names to delete (e.g. 'orders_with_price.xlsx').",
+                "items": {"type": "string"},
+                "minItems": 1,
+            },
+        },
+        "required": ["files"],
+    },
+}
+
+
+async def handler_workbook_delete(*, user_id: str, files: list) -> dict:
+    from db import collect_descendant_r2_keys, delete_file_row
+
+    if not isinstance(files, list) or not files:
+        return {"error": "files must be a non-empty list of workbook names"}
+
+    deleted: list[dict] = []
+    skipped: list[dict] = []
+    for ref in files:
+        if not isinstance(ref, str) or not ref.strip():
+            skipped.append({"name": str(ref), "reason": "empty name"})
+            continue
+        try:
+            fid, row = await _resolve_file(user_id, ref)
+        except ValueError as e:
+            skipped.append({"name": ref, "reason": str(e)})
+            continue
+        # Only sheet-typed files (defense in depth — _resolve_file already
+        # filters by SHEET_TYPES when resolving by name, but a uuid bypasses
+        # that path).
+        if row.get("type") not in SHEET_TYPES or row.get("kind") != "file":
+            skipped.append({"name": ref, "reason": "not a csv/xlsx workbook"})
+            continue
+        keys = await collect_descendant_r2_keys(fid, user_id)
+        await delete_file_row(fid, user_id)
+        if keys:
+            await storage.delete_many(keys)
+        deleted.append({"id": fid, "name": row["name"]})
+
+    return {
+        "type": "workbook_delete_result",
+        "deleted": deleted,
+        "skipped": skipped,
+        "deleted_count": len(deleted),
+    }
+
+
 async def handler_move_item(
     *, user_id: str, item: str, target: str | None = None,
 ) -> dict:

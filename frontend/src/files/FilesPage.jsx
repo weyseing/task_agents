@@ -5,6 +5,7 @@ import TabStrip from "./TabStrip";
 import EditorFrame from "./EditorFrame";
 import AgentPanel from "./AgentPanel";
 import ConfirmDialog from "./ConfirmDialog";
+import QuickOpen from "./QuickOpen";
 import {
   loadTree,
   loadContent,
@@ -24,6 +25,11 @@ const AGENT_MIN = 300;
 const AGENT_MAX = 620;
 const AGENT_DEFAULT = 360;
 const AGENT_WIDTH_KEY = "lumen.agentWidth";
+// File-tree sidebar clamps — keep the tree readable but don't let it dominate.
+const SIDEBAR_MIN = 200;
+const SIDEBAR_MAX = 480;
+const SIDEBAR_DEFAULT = 268;
+const SIDEBAR_WIDTH_KEY = "lumen.sidebarWidth";
 const SIDEBAR_COLLAPSED_KEY = "lumen.sidebarCollapsed";
 
 // `/files/<file-id>` — match the pattern used in App.jsx
@@ -34,8 +40,12 @@ const fileIdFromUrl = () => {
 };
 const syncUrl = (fileId) => {
   const target = fileId ? `/files/${fileId}` : "/files";
+  // Preserve the existing query string (?chat=<id>) so the AgentPanel can
+  // own that key without us clobbering it.
+  const search = window.location.search || "";
+  const fullTarget = target + search;
   if (window.location.pathname !== target) {
-    window.history.replaceState({ files: true, fileId }, "", target);
+    window.history.replaceState({ files: true, fileId }, "", fullTarget);
   }
 };
 
@@ -67,22 +77,32 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
       ? Math.max(AGENT_MIN, Math.min(AGENT_MAX, stored))
       : AGENT_DEFAULT;
   });
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const stored = parseInt(
+      typeof localStorage !== "undefined" ? localStorage.getItem(SIDEBAR_WIDTH_KEY) || "" : "",
+      10,
+    );
+    return Number.isFinite(stored)
+      ? Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, stored))
+      : SIDEBAR_DEFAULT;
+  });
   const [resizing, setResizing] = useState(false);
   // Upload toast state: null = hidden; otherwise { phase: 'uploading'|'done', count, names }
   const [uploadStatus, setUploadStatus] = useState(null);
+  const [quickOpen, setQuickOpen] = useState(false);
 
-  const startResize = (e) => {
+  // Generic edge-drag resize. `direction` decides which side widens: 'left'
+  // grows when the mouse moves right (sidebar edge); 'right' grows when the
+  // mouse moves left (agent-panel edge).
+  const makeResizer = (getStart, setWidth, min, max, direction) => (e) => {
     e.preventDefault();
     const startX = e.clientX;
-    const startW = agentWidth;
+    const startW = getStart();
     setResizing(true);
     const onMove = (ev) => {
-      // Dragging LEFT widens — delta is negated.
-      const next = Math.max(
-        AGENT_MIN,
-        Math.min(AGENT_MAX, startW - (ev.clientX - startX)),
-      );
-      setAgentWidth(next);
+      const delta = ev.clientX - startX;
+      const signed = direction === "right" ? -delta : delta;
+      setWidth(Math.max(min, Math.min(max, startW + signed)));
     };
     const onUp = () => {
       setResizing(false);
@@ -93,9 +113,19 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
     window.addEventListener("mouseup", onUp);
   };
 
+  const startResize = makeResizer(
+    () => agentWidth, setAgentWidth, AGENT_MIN, AGENT_MAX, "right",
+  );
+  const startSidebarResize = makeResizer(
+    () => sidebarWidth, setSidebarWidth, SIDEBAR_MIN, SIDEBAR_MAX, "left",
+  );
+
   useEffect(() => {
     localStorage.setItem(AGENT_WIDTH_KEY, String(agentWidth));
   }, [agentWidth]);
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+  }, [sidebarWidth]);
 
   // Capture the URL's file ID at component init, BEFORE any effect runs.
   // The syncUrl effect would otherwise fire first (activeId=null) and wipe
@@ -270,6 +300,14 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
         handleSave();
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === "p" || e.key === "P")) {
+        // VS Code-style quick open. Don't swallow Cmd+Shift+P (that's
+        // command-palette territory) — only the plain Cmd/Ctrl+P.
+        if (e.shiftKey) return;
+        e.preventDefault();
+        setQuickOpen(true);
+      } else if (e.key === "Escape" && quickOpen) {
+        setQuickOpen(false);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -357,6 +395,28 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
     setMobileSidebar(false);
   };
 
+  // Resolve a file by its display name (case-insensitive) and open it.
+  // Used by chat replies that mention a workbook by name, and by Cmd+P.
+  const findByName = (root, name) => {
+    if (!root) return null;
+    const target = (name || "").toLowerCase();
+    let hit = null;
+    const walk = (n) => {
+      if (hit) return;
+      if (n.kind === "file" && (n.name || "").toLowerCase() === target) {
+        hit = n;
+        return;
+      }
+      for (const c of n.children || []) walk(c);
+    };
+    walk(root);
+    return hit;
+  };
+  const handleOpenByName = (name) => {
+    const node = findByName(fs, name);
+    if (node) openFile(node);
+  };
+
   const handleNewFolder = async () => {
     const name = window.prompt("Folder name")?.trim();
     if (!name) return;
@@ -425,6 +485,16 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
     }
   };
 
+  // Called when the agent deletes one or more workbooks. Drop matching
+  // tabs (the underlying file is gone — keeping the tab would 404 on
+  // any save attempt) and clear active selection if needed.
+  const handleWorkbookDeleted = (deletedIds) => {
+    const idSet = new Set(deletedIds || []);
+    if (idSet.size === 0) return;
+    setTabs((prev) => prev.filter((t) => !idSet.has(t.id)));
+    setActiveId((cur) => (cur && idSet.has(cur) ? null : cur));
+  };
+
   // Called when the Excel agent reports it mutated one or more workbooks.
   // Reload any of those that are open in tabs. Discards any unsaved local
   // edits in matching tabs — intentional since the agent's change has
@@ -478,7 +548,7 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
         width: "100vw",
         overflow: "hidden",
         display: "grid",
-        gridTemplateColumns: `${sidebarCollapsed ? 60 : 268}px 1fr ${agentWidth}px`,
+        gridTemplateColumns: `${sidebarCollapsed ? 60 : sidebarWidth}px 1fr ${agentWidth}px`,
         background: C_PAGE,
         color: C_INK,
         fontFamily: '"Sora", system-ui',
@@ -503,6 +573,8 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
         onLogout={onLogout}
         onUpload={handleUpload}
         onNewFolder={handleNewFolder}
+        onResizeStart={!sidebarCollapsed ? startSidebarResize : undefined}
+        onQuickOpen={() => setQuickOpen(true)}
       />
       <div
         style={{
@@ -558,7 +630,9 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
         mobileOpen={mobileAgent}
         onMobileClose={() => setMobileAgent(false)}
         onWorkbookMutated={handleWorkbookMutated}
+        onWorkbookDeleted={handleWorkbookDeleted}
         onWorkspaceChanged={handleWorkspaceChanged}
+        onOpenFile={handleOpenByName}
       />
 
       {(mobileSidebar || mobileAgent) && (
@@ -599,6 +673,17 @@ export default function FilesPage({ user, onNavChat, onLogout }) {
             </>
           )}
         </div>
+      )}
+
+      {quickOpen && (
+        <QuickOpen
+          tree={fs}
+          onPick={(node) => {
+            setQuickOpen(false);
+            openFile(node);
+          }}
+          onClose={() => setQuickOpen(false)}
+        />
       )}
 
       <ConfirmDialog

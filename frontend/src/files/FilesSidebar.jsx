@@ -13,6 +13,44 @@ import {
   C_SURFACE2,
 } from "./tokens";
 
+
+// Thin right-edge drag handle. Mirrors AgentPanel's left-edge handle so
+// the two side panels feel symmetrical.
+function SidebarResizeHandle({ onResizeStart }) {
+  const [hot, setHot] = useState(false);
+  return (
+    <div
+      onMouseDown={(e) => {
+        setHot(true);
+        onResizeStart(e);
+      }}
+      onMouseEnter={() => setHot(true)}
+      onMouseLeave={() => setHot(false)}
+      style={{
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        right: -3,
+        width: 6,
+        cursor: "col-resize",
+        zIndex: 5,
+        display: "flex",
+        justifyContent: "center",
+      }}
+    >
+      <div
+        style={{
+          width: 1,
+          height: "100%",
+          background: hot ? C_INK : "transparent",
+          opacity: hot ? 0.35 : 0,
+          transition: `opacity .15s ${C_EASE}, background .15s ${C_EASE}`,
+        }}
+      />
+    </div>
+  );
+}
+
 function SidebarToggleIcon() {
   return (
     <svg className="sidebar-toggle-svg" viewBox="0 0 32 32" fill="none">
@@ -38,6 +76,8 @@ export default function FilesSidebar({
   onLogout,
   onUpload,
   onNewFolder,
+  onResizeStart,
+  onQuickOpen,
 }) {
   const fileInputRef = useRef(null);
   // When set, the next file-chooser callback uploads INTO this folder id.
@@ -76,7 +116,12 @@ export default function FilesSidebar({
             <path d="M12 5v14M5 12h14" />
           </svg>
         </button>
-        <button type="button" className="icon-btn" title="Search" disabled>
+        <button
+          type="button"
+          className="icon-btn"
+          title="Open file (⌘P)"
+          onClick={onQuickOpen}
+        >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
             <circle cx="11" cy="11" r="7" />
             <path d="M21 21l-4.5-4.5" />
@@ -89,7 +134,9 @@ export default function FilesSidebar({
   return (
     <aside
       className={`files-sidebar sidebar${mobileOpen ? " mobile-open" : ""}`}
+      style={{ position: "relative" }}
     >
+      {onResizeStart && <SidebarResizeHandle onResizeStart={onResizeStart} />}
       <div className="sidebar-top">
         <div className="brand">
           <img src="/favicon.svg" alt="Lumen" className="brand-favicon" />
@@ -125,13 +172,13 @@ export default function FilesSidebar({
           <span>New chat</span>
           <span className="kbd">⌘N</span>
         </button>
-        <button type="button" className="nav-item" disabled title="Coming soon">
+        <button type="button" className="nav-item" onClick={onQuickOpen} title="Open file by name (⌘P)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
             <circle cx="11" cy="11" r="7" />
             <path d="M21 21l-4.5-4.5" />
           </svg>
-          <span>Search</span>
-          <span className="kbd">⌘K</span>
+          <span>Open file</span>
+          <span className="kbd">⌘P</span>
         </button>
         <button type="button" className="nav-item" disabled title="Coming soon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">

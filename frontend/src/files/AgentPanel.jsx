@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { apiFetch } from "../api";
@@ -86,7 +86,9 @@ export default function AgentPanel({
   mobileOpen,
   onMobileClose,
   onWorkbookMutated,
+  onWorkbookDeleted,
   onWorkspaceChanged,
+  onOpenFile,
 }) {
   return (
     <aside
@@ -111,7 +113,9 @@ export default function AgentPanel({
         file={file}
         fileTree={fileTree}
         onWorkbookMutated={onWorkbookMutated}
+        onWorkbookDeleted={onWorkbookDeleted}
         onWorkspaceChanged={onWorkspaceChanged}
+        onOpenFile={onOpenFile}
       />
     </aside>
   );
@@ -216,6 +220,12 @@ const SHEET_TOOL_NAMES = {
   workbook_create: "create file",
   workbook_join: "join",
   workbook_concat: "concat",
+  workbook_delete: "delete file",
+  workbook_list_sheets: "list sheets",
+  folder_create: "create folder",
+  move_item: "move",
+  sheet_set_formula: "set formula",
+  sheet_add_formula_column: "add formula column",
 };
 
 const SUGGESTIONS_NO_FILE = [
@@ -231,7 +241,7 @@ const SUGGESTIONS_WITH_FILE = (name) => [
 ];
 
 
-function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkspaceChanged }) {
+function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkbookDeleted, onWorkspaceChanged, onOpenFile }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [streaming, setStreaming] = useState(false);
@@ -242,6 +252,16 @@ function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkspaceChanged }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const scrollRef = useRef(null);
   const historyRef = useRef(null);
+
+  // Derive workbooks once per tree change. `workbookList` powers @-mentions
+  // in the composer; `workbookNamesForLinkify` powers the chat-reply file
+  // links. Sorted longest-first so "orders_with_price.xlsx" matches before
+  // "orders.xlsx".
+  const workbookList = useMemo(() => collectWorkbooks(fileTree), [fileTree]);
+  const workbookNamesForLinkify = useMemo(
+    () => [...workbookList.map((w) => w.name)].sort((a, b) => b.length - a.length),
+    [workbookList],
+  );
 
   // Close history dropdown when clicking elsewhere
   useEffect(() => {
@@ -349,12 +369,72 @@ function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkspaceChanged }) {
     }
   };
 
-  // Load both the active thread and the history list on mount.
+  // Load both the active thread and the history list on mount. If the URL
+  // already pins a specific chat via ?chat=<id>, load that thread instead
+  // of the most-recent one (so shareable links resolve to the right chat).
   useEffect(() => {
-    loadActiveConversation();
+    const params = new URLSearchParams(window.location.search);
+    const pinned = params.get("chat");
+    if (pinned) {
+      // Lightweight — same flow as switchToThread minus the streaming guard
+      // and dropdown close (we're on mount, neither applies).
+      (async () => {
+        setLoading(true);
+        setError(null);
+        try {
+          const r = await apiFetch(`/api/workspace/excel/conversations/${pinned}`);
+          if (!r.ok) throw new Error(`Failed to load shared chat (${r.status})`);
+          const data = await r.json();
+          setConvId(data.conversation_id);
+          loadConversationMessages(data);
+        } catch (e) {
+          // Fall back to the most-recent so the panel isn't broken on a
+          // bad/stale link.
+          setError(`${e.message} — loading latest chat instead.`);
+          loadActiveConversation();
+        } finally {
+          setLoading(false);
+        }
+      })();
+    } else {
+      loadActiveConversation();
+    }
     loadThreadsList();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Keep the URL's ?chat=<id> in sync with the active conversation so the
+  // address bar is always copy-pastable.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (convId) {
+      if (url.searchParams.get("chat") === convId) return;
+      url.searchParams.set("chat", convId);
+    } else {
+      if (!url.searchParams.has("chat")) return;
+      url.searchParams.delete("chat");
+    }
+    window.history.replaceState(window.history.state, "", url.toString());
+  }, [convId]);
+
+  const [copiedLink, setCopiedLink] = useState(false);
+  const copyShareLink = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 1400);
+    } catch {
+      // Fallback for browsers without async clipboard (rare on https).
+      const ta = document.createElement("textarea");
+      ta.value = window.location.href;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch { /* ignore */ }
+      document.body.removeChild(ta);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 1400);
+    }
+  };
 
   // Auto-scroll to bottom on new content.
   useEffect(() => {
@@ -493,6 +573,18 @@ function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkspaceChanged }) {
             // one fetch.
             scheduleTreeRefresh();
           }
+          if (ev.file_deleted) {
+            // Close any open tab for the deleted file, then refresh the
+            // tree. Debounced same as creations.
+            if (onWorkbookDeleted) {
+              try {
+                onWorkbookDeleted([ev.file_deleted.id]);
+              } catch {
+                /* non-fatal */
+              }
+            }
+            scheduleTreeRefresh();
+          }
           if (ev.done) {
             pending.isThinking = false;
             pending.streaming = false;
@@ -551,6 +643,32 @@ function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkspaceChanged }) {
             <path d="M12 5v14M5 12h14" />
           </svg>
           New chat
+        </button>
+        <button
+          type="button"
+          onClick={copyShareLink}
+          disabled={!convId || streaming}
+          title={
+            !convId
+              ? "Start a chat first"
+              : copiedLink
+              ? "Copied!"
+              : "Copy a link to this chat"
+          }
+          style={iconChipStyle(!convId || streaming)}
+          className="agent-chip"
+          aria-label="Copy share link"
+        >
+          {copiedLink ? (
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 12l5 5L20 7" />
+            </svg>
+          ) : (
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5" />
+              <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5" />
+            </svg>
+          )}
         </button>
         <span ref={historyRef} style={{ position: "relative" }}>
           <button
@@ -612,7 +730,14 @@ function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkspaceChanged }) {
         {empty ? (
           <EmptyState file={file} suggestions={suggestions} onPick={sendMessage} disabled={streaming} />
         ) : (
-          messages.map((m, i) => <Message key={i} msg={m} />)
+          messages.map((m, i) => (
+            <Message
+              key={i}
+              msg={m}
+              workbookNames={workbookNamesForLinkify}
+              onOpenFile={onOpenFile}
+            />
+          ))
         )}
         {error && (
           <div style={{ fontSize: 12, color: "#b91c1c", padding: "8px 0" }}>
@@ -623,7 +748,7 @@ function ExcelChat({ file, fileTree, onWorkbookMutated, onWorkspaceChanged }) {
       <Composer
         disabled={streaming}
         onSend={sendMessage}
-        workbooks={collectWorkbooks(fileTree)}
+        workbooks={workbookList}
       />
     </>
   );
@@ -692,7 +817,68 @@ function EmptyState({ file, suggestions, onPick, disabled }) {
 }
 
 
-function Message({ msg }) {
+// remark plugin: rewrite plain-text occurrences of known file names into
+// `lumen-file:<name>` links. Skips inline code and fenced code blocks so we
+// don't mangle backticked snippets the agent prints.
+function remarkLinkifyFiles({ names } = {}) {
+  if (!names || names.length === 0) return () => {};
+  const escaped = names.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  // Word-ish boundaries so we don't grab "orders.xlsx" inside something
+  // like "orders.xlsxbackup". Filenames legitimately end in a dot+ext so
+  // \b at the right edge would fail — use a manual lookbehind/lookahead.
+  const re = new RegExp(
+    `(?<![A-Za-z0-9_])(${escaped.join("|")})(?![A-Za-z0-9_])`,
+    "g",
+  );
+
+  const splitTextNode = (text) => {
+    const out = [];
+    let last = 0;
+    let m;
+    re.lastIndex = 0;
+    while ((m = re.exec(text)) !== null) {
+      if (m.index > last) out.push({ type: "text", value: text.slice(last, m.index) });
+      out.push({
+        type: "link",
+        url: `lumen-file:${m[1]}`,
+        children: [{ type: "text", value: m[1] }],
+      });
+      last = m.index + m[1].length;
+    }
+    if (last === 0) return null; // no match
+    if (last < text.length) out.push({ type: "text", value: text.slice(last) });
+    return out;
+  };
+
+  const visit = (node) => {
+    if (!node || !node.children) return;
+    const next = [];
+    for (const child of node.children) {
+      if (child.type === "text") {
+        const replaced = splitTextNode(child.value);
+        if (replaced) next.push(...replaced);
+        else next.push(child);
+      } else if (child.type === "inlineCode" || child.type === "code") {
+        next.push(child); // never touch code
+      } else if (
+        child.type === "link" &&
+        typeof child.url === "string" &&
+        child.url.startsWith("lumen-file:")
+      ) {
+        next.push(child); // avoid double-walking links we just created
+      } else {
+        visit(child);
+        next.push(child);
+      }
+    }
+    node.children = next;
+  };
+
+  return (tree) => visit(tree);
+}
+
+
+function Message({ msg, workbookNames, onOpenFile }) {
   if (msg.role === "user") {
     return (
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
@@ -723,6 +909,43 @@ function Message({ msg }) {
   // show. Sits at the bottom so the user knows more is coming.
   const showWorking = msg.streaming && !msg.isThinking && segments.length > 0;
 
+  const remarkPlugins = useMemo(
+    () =>
+      workbookNames && workbookNames.length > 0
+        ? [remarkGfm, [remarkLinkifyFiles, { names: workbookNames }]]
+        : [remarkGfm],
+    [workbookNames],
+  );
+
+  const mdComponents = useMemo(
+    () => ({
+      a({ href, children, ...rest }) {
+        if (typeof href === "string" && href.startsWith("lumen-file:")) {
+          const name = decodeURIComponent(href.slice("lumen-file:".length));
+          return (
+            <button
+              type="button"
+              className="chat-file-link"
+              onClick={(e) => {
+                e.preventDefault();
+                onOpenFile && onOpenFile(name);
+              }}
+              title={`Open ${name}`}
+            >
+              {children}
+            </button>
+          );
+        }
+        return (
+          <a href={href} target="_blank" rel="noopener noreferrer" {...rest}>
+            {children}
+          </a>
+        );
+      },
+    }),
+    [onOpenFile],
+  );
+
   return (
     <div style={{ marginBottom: 14 }}>
       {segments.map((seg, i) => {
@@ -739,7 +962,15 @@ function Message({ msg }) {
             className="reply"
             style={{ fontSize: 13.5, lineHeight: 1.55, color: C_INK, margin: "6px 0" }}
           >
-            <Markdown remarkPlugins={[remarkGfm]}>{seg.text}</Markdown>
+            <Markdown
+              remarkPlugins={remarkPlugins}
+              urlTransform={(url) =>
+                typeof url === "string" && url.startsWith("lumen-file:") ? url : url
+              }
+              components={mdComponents}
+            >
+              {seg.text}
+            </Markdown>
           </div>
         );
       })}
@@ -866,6 +1097,11 @@ function SheetToolPill({ tc }) {
       return `${d.row_count} rows → ${d.saved_as?.name || ""}`;
     if (d.type === "workbook_concat_result")
       return `${d.row_count} rows → ${d.saved_as?.name || ""}`;
+    if (d.type === "workbook_delete_result") {
+      const n = d.deleted_count ?? (d.deleted || []).length;
+      const skipped = (d.skipped || []).length;
+      return `−${n} file${n === 1 ? "" : "s"}${skipped ? ` · ${skipped} skipped` : ""}`;
+    }
     return "done";
   })();
 

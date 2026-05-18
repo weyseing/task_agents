@@ -39,6 +39,7 @@ USER_SCOPED = {
     "workbook_create",
     "workbook_join",
     "workbook_concat",
+    "workbook_delete",
     "folder_create",
     "move_item",
 }
@@ -71,6 +72,7 @@ REGISTRY = {
     "workbook_create": {"schema": sheet.SCHEMA_WORKBOOK_CREATE, "handler": sheet.handler_workbook_create},
     "workbook_join": {"schema": sheet.SCHEMA_WORKBOOK_JOIN, "handler": sheet.handler_workbook_join},
     "workbook_concat": {"schema": sheet.SCHEMA_WORKBOOK_CONCAT, "handler": sheet.handler_workbook_concat},
+    "workbook_delete": {"schema": sheet.SCHEMA_WORKBOOK_DELETE, "handler": sheet.handler_workbook_delete},
     "folder_create": {"schema": sheet.SCHEMA_FOLDER_CREATE, "handler": sheet.handler_folder_create},
     "move_item": {"schema": sheet.SCHEMA_MOVE_ITEM, "handler": sheet.handler_move_item},
 }
@@ -100,6 +102,7 @@ _EXCEL_TOOLS = [
     "workbook_create",
     "workbook_join",
     "workbook_concat",
+    "workbook_delete",
     "folder_create",
     "move_item",
 ]
