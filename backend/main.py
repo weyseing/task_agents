@@ -13,18 +13,23 @@ from auth import current_user_id
 from db import (
     init_db,
     close_db,
+    clear_workspace_conversation,
     collect_descendant_r2_keys,
     conversation_belongs_to,
     create_conversation,
     create_file_row,
+    create_workspace_conversation,
     delete_conversation,
     delete_file_row,
     file_belongs_to,
     get_conversations,
     get_conversation_messages,
     get_file,
+    get_or_create_workspace_conversation,
     get_user_by_id,
+    get_workspace_conversation_id,
     list_user_files,
+    list_workspace_conversations,
     rename_file_row,
     save_message,
     set_file_r2_key_and_size,
@@ -111,6 +116,63 @@ Tool guidelines:
 - When showing email search results, summarize the key information clearly.
 - Gmail search uses absolute dates: after:2026/04/09, before:2026/04/16. Never use relative date syntax.
 - After a web search, write ONE short combined summary of the findings. Do not repeat titles, URLs, or snippets already visible in the tool results widget. Do not separate into "Text Summary" and "Image Summary". Just give a brief, useful answer."""
+
+
+def get_excel_system_prompt(user: dict, workbooks: list[dict]) -> str:
+    today = date.today().strftime("%Y/%m/%d")
+    name = user.get("name") or user.get("email") or "the user"
+    if workbooks:
+        wb_lines = "\n".join(
+            f"- {w['name']} ({w['type']}, {w['rows']} rows × {w['columns']} cols)"
+            for w in workbooks
+        )
+    else:
+        wb_lines = "- (no workbooks yet)"
+    return f"""You are the Excel agent — a data-science specialist for spreadsheets in Lumen.
+
+Today is {today}. The user is {name}.
+
+You operate over the user's ENTIRE workbook collection. Every sheet/workbook
+tool takes a `file` argument (workbook name like 'sales_q1.csv'). YOU decide
+which workbook(s) to read or modify based on the request.
+
+Available workbooks right now:
+{wb_lines}
+
+How to work:
+- ALWAYS pass `file=` explicitly to every sheet_* tool. Never guess the active file — there isn't one.
+- When the user mentions a workbook ambiguously ("the sales sheet"), call workbook_list, pick the best match, and proceed. If truly ambiguous, ask once.
+- For data exploration: workbook_peek → sheet_describe / sheet_value_counts / sheet_correlate / sheet_histogram / sheet_pivot.
+- For aggregations (sum/avg/group_by), prefer sheet_compute. Don't do mental math on previewed rows.
+- For multi-file work: workbook_join (merge on a key), workbook_concat (stack rows), workbook_create (write a new report file).
+- After mutations or new-file creation, the workspace UI auto-refreshes — just confirm what you did in one sentence.
+- Column refs accept header name, letter (A, B, ..., AA), or 0-based index. Row indices are 0-based, exclude header.
+- For pivots, set save_as if the user wants a persistent report file.
+- Use markdown tables only when the user explicitly asks to "show" data; otherwise the workbook is the output.
+- Be concise. Do the work, confirm in one sentence. No filler, no emojis, no restating the request.
+
+Formulas (IMPORTANT):
+- For DERIVED columns or cells (totals, ratios, line totals, running balances, lookups via cell math), use sheet_set_formula or sheet_add_formula_column — DO NOT write literal computed values via sheet_set_cells. Formulas re-evaluate when source cells change; literal values go stale.
+- Address syntax is A1 notation: A1 = first header cell, A2 = first data row, B5 = column B, fifth address row (= 4th data row).
+- Formula language supports: + − × ÷ ^ ( ); comparisons (= <> > < >= <=); cell refs A1, ranges A1:B10; functions SUM, AVERAGE, MIN, MAX, COUNT, COUNTA, COUNTIF, SUMIF, IF, IFERROR, ROUND, ABS, LEN, CONCAT, LEFT, RIGHT, MID, UPPER, LOWER, TRIM.
+- For a one-shot derived column over every data row, use sheet_add_formula_column with the {{ROW}} placeholder, e.g. formula='=B{{ROW}}*C{{ROW}}'.
+- For pivots/joined report files that won't update, literal values are fine. For working sheets, prefer formulas.
+- When you sheet_read, the response includes `formulas` for visible cells so you can see what's derived vs literal.
+
+Workspace organisation:
+- Use folder_create to make folders (e.g. 'Reports', 'Archive').
+- Use move_item to organise files — pass the file/folder name and the target folder name (omit target for root).
+- workbook_create, workbook_join, workbook_concat, and sheet_pivot (save_as) all accept a `parent` argument (folder NAME). When the user wants outputs in a specific folder, pass `parent` at create time — don't create-then-move."""
+
+
+async def _workbook_list_for_prompt(user_id: str) -> list[dict]:
+    """Cheap workbook listing for the system prompt: id, name, type, rough size."""
+    from tools.sheet import handler_workbook_list
+
+    res = await handler_workbook_list(user_id=user_id)
+    if "error" in res:
+        return []
+    return res.get("workbooks", [])
 
 
 @app.get("/health")
@@ -384,6 +446,11 @@ async def write_file_content(
 
     body = await request.json()
     content = body.get("content", "")
+    # For sheet files with formulas, recompute server-side before storing
+    # so UI-side formula edits behave identically to agent edits.
+    if row["type"] in ("csv", "xlsx") and isinstance(content, dict):
+        from tools.sheet import recompute_content
+        content = recompute_content(content)
     payload = json.dumps(content).encode("utf-8")
 
     key = row["r2_key"] or storage.object_key(user_id, file_id)
@@ -419,6 +486,617 @@ async def remove_file(
     await delete_file_row(file_id, user_id)
     await storage.delete_many(keys)
     return JSONResponse({"ok": True, "r2_objects_deleted": len(keys)})
+
+
+# --- Export ---
+
+
+@app.get("/api/files/{file_id}/export/csv")
+async def export_csv(file_id: str, user_id: str = Depends(current_user_id)):
+    """Stream the file as CSV. Works for csv/xlsx (we store both as JSON)."""
+    from fastapi.responses import Response
+    from tools.sheet_export import to_csv_bytes
+
+    row = await get_file(file_id, user_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="File not found")
+    if row["type"] not in ("csv", "xlsx"):
+        raise HTTPException(status_code=400, detail="Only csv/xlsx are exportable as CSV")
+    if not row["r2_key"]:
+        return Response(content=b"", media_type="text/csv")
+    raw = await storage.get(row["r2_key"])
+    try:
+        content = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        content = {}
+    body = to_csv_bytes(content)
+    filename = row["name"]
+    if not filename.lower().endswith(".csv"):
+        filename = filename.rsplit(".", 1)[0] + ".csv"
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/files/{file_id}/export/google_sheets")
+async def export_google_sheets(
+    file_id: str, user_id: str = Depends(current_user_id)
+):
+    """Push the workbook to a new Google Sheet in the user's Drive."""
+    from tools.sheet_export import SheetsNotAuthorizedError, to_google_sheet
+
+    row = await get_file(file_id, user_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="File not found")
+    if row["type"] not in ("csv", "xlsx"):
+        raise HTTPException(status_code=400, detail="Only csv/xlsx can be exported to Sheets")
+    if not row["r2_key"]:
+        content = {"columns": [], "rows": []}
+    else:
+        raw = await storage.get(row["r2_key"])
+        try:
+            content = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            content = {"columns": [], "rows": []}
+
+    title = row["name"]
+    if title.lower().endswith(".csv") or title.lower().endswith(".xlsx"):
+        title = title.rsplit(".", 1)[0]
+    try:
+        result = await to_google_sheet(user_id, title, content)
+    except SheetsNotAuthorizedError as e:
+        # 409 = action requires re-auth; frontend offers a "Reconnect" link.
+        raise HTTPException(status_code=409, detail=str(e))
+    return JSONResponse(result)
+
+
+# --- Workspace-scoped Excel chat (persisted history) ---
+
+EXCEL_WORKSPACE = "excel"
+DEFAULT_THREAD_TITLE = "Excel workspace"
+
+
+@app.get("/api/workspace/excel/conversations")
+async def list_excel_conversations(user_id: str = Depends(current_user_id)):
+    """All Excel-workspace conversations for this user, newest first."""
+    convs = await list_workspace_conversations(user_id, EXCEL_WORKSPACE)
+    return JSONResponse(convs)
+
+
+@app.get("/api/workspace/excel/conversation")
+async def get_workspace_conversation_default(
+    user_id: str = Depends(current_user_id)
+):
+    """Most-recent conversation in the Excel workspace, with full messages."""
+    conv_id = await get_workspace_conversation_id(user_id, EXCEL_WORKSPACE)
+    if not conv_id:
+        return JSONResponse({"conversation_id": None, "messages": []})
+    messages = await get_conversation_messages(conv_id, user_id)
+    return JSONResponse({"conversation_id": conv_id, "messages": messages})
+
+
+@app.get("/api/workspace/excel/conversations/{conversation_id}")
+async def get_excel_conversation_by_id(
+    conversation_id: str, user_id: str = Depends(current_user_id)
+):
+    """Load one specific Excel-workspace conversation by id."""
+    if not await conversation_belongs_to(conversation_id, user_id):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    messages = await get_conversation_messages(conversation_id, user_id)
+    return JSONResponse({"conversation_id": conversation_id, "messages": messages})
+
+
+@app.post("/api/workspace/excel/conversations")
+async def new_excel_conversation(user_id: str = Depends(current_user_id)):
+    """Start a fresh thread (preserves all prior threads in history)."""
+    conv_id = await create_workspace_conversation(
+        user_id, EXCEL_WORKSPACE, DEFAULT_THREAD_TITLE
+    )
+    return JSONResponse({"conversation_id": conv_id})
+
+
+@app.delete("/api/workspace/excel/conversations/{conversation_id}")
+async def delete_excel_conversation(
+    conversation_id: str, user_id: str = Depends(current_user_id)
+):
+    """Delete one specific thread from history."""
+    if not await conversation_belongs_to(conversation_id, user_id):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    await delete_conversation(conversation_id, user_id)
+    return JSONResponse({"ok": True})
+
+
+@app.patch("/api/workspace/excel/conversations/{conversation_id}")
+async def rename_excel_conversation(
+    conversation_id: str,
+    request: Request,
+    user_id: str = Depends(current_user_id),
+):
+    body = await request.json()
+    title = (body.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="title required")
+    if not await conversation_belongs_to(conversation_id, user_id):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    await update_conversation_title(conversation_id, user_id, title)
+    return JSONResponse({"ok": True})
+
+
+@app.delete("/api/workspace/excel/conversation")
+async def reset_all_excel_conversations(user_id: str = Depends(current_user_id)):
+    """Wipe ALL Excel-workspace conversations (used by 'Forget everything')."""
+    await clear_workspace_conversation(user_id, EXCEL_WORKSPACE)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/workspace/excel/chat")
+async def workspace_excel_chat(
+    request: Request, user_id: str = Depends(current_user_id)
+):
+    """Run the Excel agent. Body may include `conversation_id` to target a
+    specific past thread; otherwise the most-recent thread (creating one if
+    needed) is used."""
+    body = await request.json()
+    user_content = body.get("content", "")
+    requested_conv_id = body.get("conversation_id")
+    mentions = body.get("mentions") or []
+    # Normalise mentions — list of workbook names (strings)
+    mentions = [str(m).strip() for m in mentions if isinstance(m, str) and m.strip()]
+
+    user = await get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    if requested_conv_id:
+        if not await conversation_belongs_to(requested_conv_id, user_id):
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        conversation_id = requested_conv_id
+    else:
+        conversation_id = await get_or_create_workspace_conversation(
+            user_id, EXCEL_WORKSPACE, DEFAULT_THREAD_TITLE
+        )
+
+    # Auto-title from the first user message if the thread is still untitled.
+    existing_messages = await get_conversation_messages(conversation_id, user_id)
+    first_message = next(
+        (m for m in existing_messages if m["role"] == "user"), None
+    )
+    if first_message is None and user_content:
+        snippet = (user_content or "").strip().split("\n")[0][:60]
+        if snippet:
+            await update_conversation_title(conversation_id, user_id, snippet)
+
+    await save_message(conversation_id, "user", user_content)
+
+    # Inject a fresh workbook map into the system prompt every turn so
+    # the agent sees newly created files immediately.
+    workbooks = await _workbook_list_for_prompt(user_id)
+
+    MAX_HISTORY = 16
+    history = await get_conversation_messages(conversation_id, user_id)
+    recent = history[-MAX_HISTORY:]
+
+    messages: list[dict] = [
+        {"role": "system", "content": get_excel_system_prompt(user, workbooks)}
+    ]
+    # If the user @-tagged workbooks in this turn, surface that to the agent
+    # as a turn-only system hint. It's not persisted, so it doesn't pollute
+    # future turns where the user hasn't re-tagged.
+    if mentions:
+        messages.append({
+            "role": "system",
+            "content": (
+                "The user explicitly tagged these workbooks in this message: "
+                + ", ".join(mentions)
+                + ". Treat them as the primary files for this request — "
+                "read/operate on those exact workbooks unless the request "
+                "clearly calls for others."
+            ),
+        })
+    for msg in recent:
+        if msg["role"] == "user":
+            messages.append({"role": "user", "content": msg["content"]})
+        elif msg["role"] == "assistant":
+            if msg.get("tool_calls"):
+                tc_list = []
+                for tc in msg["tool_calls"]:
+                    tc_list.append(
+                        {
+                            "id": tc["id"],
+                            "type": "function",
+                            "function": {
+                                "name": tc["name"],
+                                "arguments": json.dumps(tc["args"]),
+                            },
+                        }
+                    )
+                messages.append({"role": "assistant", "tool_calls": tc_list})
+                for tc in msg["tool_calls"]:
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": json.dumps(tc.get("result", {})),
+                        }
+                    )
+            if msg.get("content"):
+                messages.append({"role": "assistant", "content": msg["content"]})
+
+    # Tools that mutate an existing workbook (so any open editor needs to refresh)
+    MUTATING = {
+        "sheet_set_cells",
+        "sheet_add_rows",
+        "sheet_delete_rows",
+        "sheet_add_columns",
+        "sheet_delete_columns",
+        "sheet_set_headers",
+        "sheet_replace_all",
+        "sheet_sort",
+        "sheet_set_formula",
+        "sheet_add_formula_column",
+    }
+    # Tools that create a new workbook OR touch the file tree
+    CREATING = {
+        "workbook_create",
+        "workbook_join",
+        "workbook_concat",
+        "sheet_pivot",  # only when save_as is set, but easier to just refresh
+        "folder_create",
+        "move_item",
+    }
+
+    async def event_stream():
+        yield json.dumps({"conversation_id": conversation_id})
+
+        response_content = ""
+        tool_calls_data: list[dict] = []
+        mutated_files: set[str] = set()
+        created_files: list[dict] = []
+
+        async for event in run_agent(
+            messages, user_id=user_id, toolset="excel"
+        ):
+            if "content" in event:
+                response_content += event["content"]
+            if "tool_call" in event:
+                tool_calls_data.append(event["tool_call"])
+            if "tool_result" in event:
+                for tc in tool_calls_data:
+                    if tc["id"] == event["tool_result"]["id"]:
+                        tc["result"] = event["tool_result"]["data"]
+                        data = event["tool_result"]["data"] or {}
+                        if "error" not in data:
+                            if tc["name"] in MUTATING and data.get("file_id"):
+                                mutated_files.add(data["file_id"])
+                            if tc["name"] in CREATING:
+                                saved = data.get("saved_as") if tc["name"] == "sheet_pivot" else data
+                                if saved and saved.get("id"):
+                                    created_files.append(
+                                        {"id": saved["id"], "name": saved.get("name")}
+                                    )
+                        break
+            yield json.dumps(event)
+
+        yield json.dumps(
+            {
+                "done": True,
+                "mutated_files": list(mutated_files),
+                "created_files": created_files,
+            }
+        )
+
+        await save_message(
+            conversation_id,
+            "assistant",
+            response_content,
+            tool_calls=tool_calls_data or None,
+        )
+
+    return EventSourceResponse(event_stream())
+
+
+@app.post("/api/files/seed")
+async def seed_workbooks(user_id: str = Depends(current_user_id)):
+    """One-shot: create a Workbooks folder containing sample csv/xlsx files.
+
+    Returns the existing tree if the folder already exists — idempotent re-run
+    is safe but does NOT duplicate.
+    """
+    from db import list_user_files
+
+    rows = await list_user_files(user_id)
+    existing = next(
+        (r for r in rows if r["kind"] == "folder" and r["name"] == "Workbooks"),
+        None,
+    )
+    if existing:
+        children = [r for r in rows if r["parent_id"] == existing["id"]]
+        return JSONResponse(
+            {"folder_id": existing["id"], "created": False, "files": len(children)}
+        )
+
+    folder = await create_file_row(
+        user_id, name="Workbooks", kind="folder", parent_id=None
+    )
+
+    samples = _sample_sheets()
+    created_ids = []
+    for name, type_, content in samples:
+        row = await create_file_row(
+            user_id, name=name, kind="file", type=type_, parent_id=folder["id"]
+        )
+        key = storage.object_key(user_id, row["id"])
+        payload = json.dumps(content).encode("utf-8")
+        await storage.put(key, payload, content_type="application/json")
+        await set_file_r2_key_and_size(row["id"], user_id, key, len(payload))
+        created_ids.append(row["id"])
+
+    return JSONResponse(
+        {"folder_id": folder["id"], "created": True, "file_ids": created_ids}
+    )
+
+
+def _sample_sheets() -> list[tuple[str, str, dict]]:
+    """A normalised relational dataset (customers → orders → order_items →
+    products + payments) plus utility sheets (employees with ManagerID,
+    performance, inventory, project tracker, expenses). Designed for real
+    multi-file analysis — joins, lookups, aggregations across files."""
+    return [
+        # ---- Reference data --------------------------------------------
+        (
+            "customers.csv",
+            "csv",
+            {
+                "columns": ["CustomerID", "Name", "Region", "Tier", "JoinDate"],
+                "rows": [
+                    ["C001", "Acme Holdings", "APAC", "Enterprise", "2022-01-15"],
+                    ["C002", "Nimbus Labs", "EMEA", "Growth", "2023-04-02"],
+                    ["C003", "Orchid Bank", "APAC", "Enterprise", "2021-09-20"],
+                    ["C004", "Pinecrest LLC", "AMER", "SMB", "2024-02-11"],
+                    ["C005", "Vertex Corp", "AMER", "Enterprise", "2020-06-30"],
+                    ["C006", "Sable Foods", "EMEA", "SMB", "2024-08-18"],
+                    ["C007", "Maple Energy", "AMER", "Growth", "2023-11-05"],
+                    ["C008", "Kintaro KK", "APAC", "Growth", "2022-12-01"],
+                    ["C009", "Helio Mining", "AMER", "SMB", "2025-01-12"],
+                    ["C010", "Bristol Logistics", "EMEA", "Growth", "2023-07-22"],
+                    ["C011", "Tessera Pharma", "EMEA", "Enterprise", "2021-03-08"],
+                    ["C012", "Andes Retail", "AMER", "SMB", "2024-10-04"],
+                ],
+            },
+        ),
+        (
+            "products.csv",
+            "csv",
+            {
+                "columns": ["ProductID", "Name", "Category", "UnitPrice", "UnitCost"],
+                "rows": [
+                    ["P01", "Lumen Pro Plan", "Software", "1200", "180"],
+                    ["P02", "Lumen Lite Plan", "Software", "350", "60"],
+                    ["P03", "Lumen Enterprise Plan", "Software", "4500", "650"],
+                    ["P04", "Onboarding Pack", "Service", "800", "320"],
+                    ["P05", "Premium Support", "Service", "600", "180"],
+                    ["P06", "Data Migration", "Service", "1500", "700"],
+                    ["P07", "Custom Integration", "Service", "2800", "1200"],
+                    ["P08", "Training Workshop", "Service", "950", "300"],
+                ],
+            },
+        ),
+        # ---- Transactional data ----------------------------------------
+        (
+            "orders.csv",
+            "csv",
+            {
+                "columns": ["OrderID", "CustomerID", "Date", "Status", "SalesRepID"],
+                "rows": [
+                    ["O1001", "C001", "2026-01-08", "Closed", "E002"],
+                    ["O1002", "C003", "2026-01-12", "Closed", "E006"],
+                    ["O1003", "C005", "2026-01-18", "Closed", "E002"],
+                    ["O1004", "C002", "2026-01-22", "Closed", "E010"],
+                    ["O1005", "C007", "2026-02-02", "Closed", "E010"],
+                    ["O1006", "C001", "2026-02-10", "Closed", "E002"],
+                    ["O1007", "C004", "2026-02-14", "Closed", "E006"],
+                    ["O1008", "C008", "2026-02-21", "Closed", "E002"],
+                    ["O1009", "C011", "2026-02-26", "Closed", "E006"],
+                    ["O1010", "C005", "2026-03-03", "Closed", "E010"],
+                    ["O1011", "C010", "2026-03-09", "Closed", "E010"],
+                    ["O1012", "C003", "2026-03-15", "Closed", "E002"],
+                    ["O1013", "C012", "2026-03-18", "Open", "E006"],
+                    ["O1014", "C006", "2026-03-22", "Open", "E010"],
+                    ["O1015", "C009", "2026-03-25", "Closed", "E002"],
+                    ["O1016", "C001", "2026-04-02", "Open", "E002"],
+                    ["O1017", "C005", "2026-04-08", "Closed", "E010"],
+                    ["O1018", "C011", "2026-04-15", "Closed", "E006"],
+                    ["O1019", "C002", "2026-04-22", "Open", "E010"],
+                    ["O1020", "C008", "2026-04-28", "Closed", "E002"],
+                ],
+            },
+        ),
+        (
+            "order_items.csv",
+            "csv",
+            {
+                # Quantity is the count; UnitPrice can be derived via lookup on products.
+                "columns": ["OrderID", "ProductID", "Quantity"],
+                "rows": [
+                    # O1001 Acme (Enterprise): Pro plan + Onboarding
+                    ["O1001", "P01", "10"], ["O1001", "P04", "1"],
+                    # O1002 Orchid (Enterprise): Enterprise plan + Support + Migration
+                    ["O1002", "P03", "3"], ["O1002", "P05", "12"], ["O1002", "P06", "1"],
+                    # O1003 Vertex (Enterprise): Enterprise + Integration
+                    ["O1003", "P03", "5"], ["O1003", "P07", "2"],
+                    # O1004 Nimbus (Growth): Pro
+                    ["O1004", "P01", "6"], ["O1004", "P08", "1"],
+                    # O1005 Maple (Growth): Lite x large
+                    ["O1005", "P02", "40"], ["O1005", "P05", "6"],
+                    # O1006 Acme add-on: Support
+                    ["O1006", "P05", "20"],
+                    # O1007 Pinecrest (SMB): Lite
+                    ["O1007", "P02", "12"], ["O1007", "P04", "1"],
+                    # O1008 Kintaro (Growth): Pro + Onboarding
+                    ["O1008", "P01", "8"], ["O1008", "P04", "1"],
+                    # O1009 Tessera (Enterprise): Enterprise + Migration + Integration
+                    ["O1009", "P03", "4"], ["O1009", "P06", "2"], ["O1009", "P07", "1"],
+                    # O1010 Vertex more Pro
+                    ["O1010", "P01", "15"],
+                    # O1011 Bristol (Growth): Lite
+                    ["O1011", "P02", "25"], ["O1011", "P05", "5"],
+                    # O1012 Orchid more Pro
+                    ["O1012", "P01", "9"],
+                    # O1013 Andes (SMB, OPEN): Lite
+                    ["O1013", "P02", "6"],
+                    # O1014 Sable (SMB, OPEN): Lite + Training
+                    ["O1014", "P02", "10"], ["O1014", "P08", "1"],
+                    # O1015 Helio (SMB): Lite
+                    ["O1015", "P02", "8"],
+                    # O1016 Acme open: Enterprise upgrade
+                    ["O1016", "P03", "2"],
+                    # O1017 Vertex closed: Support + Training
+                    ["O1017", "P05", "15"], ["O1017", "P08", "2"],
+                    # O1018 Tessera: Pro + Support
+                    ["O1018", "P01", "12"], ["O1018", "P05", "8"],
+                    # O1019 Nimbus OPEN: Pro
+                    ["O1019", "P01", "5"],
+                    # O1020 Kintaro: Pro
+                    ["O1020", "P01", "7"],
+                ],
+            },
+        ),
+        (
+            "payments.csv",
+            "csv",
+            {
+                # Note: not every order has a payment row (open orders). Some closed
+                # orders have multiple split payments. This lets us test left joins
+                # and "unpaid orders" detection.
+                "columns": ["PaymentID", "OrderID", "Date", "Amount", "Method"],
+                "rows": [
+                    ["PMT-001", "O1001", "2026-01-10", "12800", "Wire"],
+                    ["PMT-002", "O1002", "2026-01-15", "21700", "Wire"],
+                    ["PMT-003", "O1003", "2026-01-20", "28100", "Wire"],
+                    ["PMT-004", "O1004", "2026-01-25", "7150", "Card"],
+                    ["PMT-005", "O1005", "2026-02-04", "17600", "Card"],
+                    ["PMT-006", "O1006", "2026-02-12", "12000", "Wire"],
+                    ["PMT-007", "O1007", "2026-02-16", "5000", "Card"],
+                    ["PMT-008", "O1008", "2026-02-23", "10400", "Wire"],
+                    ["PMT-009", "O1009", "2026-02-28", "23800", "Wire"],
+                    ["PMT-010", "O1010", "2026-03-05", "18000", "Wire"],
+                    # O1011 paid partially in two installments
+                    ["PMT-011", "O1011", "2026-03-12", "6000", "Card"],
+                    ["PMT-011b", "O1011", "2026-04-02", "5800", "Card"],
+                    ["PMT-012", "O1012", "2026-03-18", "10800", "Wire"],
+                    # O1013, O1014 OPEN — no payment
+                    ["PMT-015", "O1015", "2026-03-28", "2800", "Card"],
+                    # O1016 OPEN — no payment
+                    ["PMT-017", "O1017", "2026-04-10", "10900", "Wire"],
+                    ["PMT-018", "O1018", "2026-04-18", "19200", "Wire"],
+                    # O1019 OPEN — no payment
+                    ["PMT-020", "O1020", "2026-05-02", "8400", "Card"],
+                ],
+            },
+        ),
+        # ---- HR -------------------------------------------------------
+        (
+            "employees.csv",
+            "csv",
+            {
+                "columns": [
+                    "EmployeeID", "Name", "Department", "Role",
+                    "Salary", "JoinDate", "ManagerID",
+                ],
+                "rows": [
+                    ["E001", "Aisha Tan", "Engineering", "Senior Engineer", "8500", "2022-03-15", "E007"],
+                    ["E002", "Brandon Lee", "Sales", "Account Executive", "6200", "2023-07-01", "E006"],
+                    ["E003", "Carmen Lim", "Marketing", "Content Lead", "7100", "2021-11-09", ""],
+                    ["E004", "Devan Singh", "Engineering", "Engineer", "5800", "2024-02-19", "E007"],
+                    ["E005", "Elena Wong", "Finance", "Analyst", "5400", "2023-04-12", "E009"],
+                    ["E006", "Farah Yusof", "Sales", "Sales Manager", "9200", "2020-08-30", ""],
+                    ["E007", "Gerald Ong", "Engineering", "Engineering Manager", "11500", "2019-05-21", ""],
+                    ["E008", "Hannah Koh", "Marketing", "Designer", "5300", "2024-09-02", "E003"],
+                    ["E009", "Ivan Tay", "Finance", "Senior Analyst", "7700", "2022-01-10", ""],
+                    ["E010", "Jasmine Goh", "Sales", "Account Executive", "6100", "2024-05-06", "E006"],
+                    ["E011", "Kelvin Chua", "Engineering", "Engineer", "5900", "2025-02-01", "E007"],
+                    ["E012", "Lina Ho", "Marketing", "Designer", "5500", "2024-11-20", "E003"],
+                ],
+            },
+        ),
+        (
+            "performance.csv",
+            "csv",
+            {
+                "columns": ["EmployeeID", "Quarter", "Rating", "Bonus"],
+                "rows": [
+                    ["E001", "Q1-2026", "4.5", "1500"],
+                    ["E002", "Q1-2026", "3.8", "800"],
+                    ["E003", "Q1-2026", "4.2", "1200"],
+                    ["E004", "Q1-2026", "4.0", "1000"],
+                    ["E005", "Q1-2026", "3.5", "600"],
+                    ["E006", "Q1-2026", "4.7", "2200"],
+                    ["E007", "Q1-2026", "4.9", "3000"],
+                    ["E008", "Q1-2026", "3.9", "900"],
+                    ["E009", "Q1-2026", "4.3", "1400"],
+                    ["E010", "Q1-2026", "3.7", "700"],
+                    ["E011", "Q1-2026", "4.1", "1100"],
+                    ["E012", "Q1-2026", "3.6", "650"],
+                ],
+            },
+        ),
+        # ---- Utility sheets (unchanged from before) -------------------
+        (
+            "inventory.xlsx",
+            "xlsx",
+            {
+                "columns": ["SKU", "Item", "Category", "InStock", "Reorder", "UnitCost"],
+                "rows": [
+                    ["SKU-100", "Laptop Stand", "Accessories", "42", "20", "35"],
+                    ["SKU-101", "USB-C Hub", "Accessories", "8", "15", "28"],
+                    ["SKU-102", "Mechanical Keyboard", "Peripherals", "12", "10", "95"],
+                    ["SKU-103", "27-inch Monitor", "Displays", "5", "8", "320"],
+                    ["SKU-104", "Wireless Mouse", "Peripherals", "63", "30", "22"],
+                    ["SKU-105", "Webcam HD", "Peripherals", "18", "12", "60"],
+                    ["SKU-106", "Office Chair", "Furniture", "3", "5", "180"],
+                    ["SKU-107", "Standing Desk", "Furniture", "2", "4", "450"],
+                ],
+            },
+        ),
+        (
+            "expenses_apr.csv",
+            "csv",
+            {
+                "columns": ["Date", "Category", "Vendor", "Description", "Amount", "Status"],
+                "rows": [
+                    ["2026-04-02", "Travel", "Singapore Airlines", "Flight KL-SG", "420", "Approved"],
+                    ["2026-04-03", "Software", "Notion", "Annual subscription", "120", "Approved"],
+                    ["2026-04-05", "Meals", "Pancious", "Client lunch", "85", "Pending"],
+                    ["2026-04-09", "Travel", "Grab", "Airport transfer", "32", "Approved"],
+                    ["2026-04-11", "Software", "Figma", "Team seats x5", "375", "Approved"],
+                    ["2026-04-14", "Office", "IKEA", "Standing desk", "450", "Pending"],
+                    ["2026-04-18", "Meals", "Toast Box", "Team breakfast", "62", "Approved"],
+                    ["2026-04-22", "Marketing", "Meta Ads", "Lead-gen campaign", "1200", "Approved"],
+                    ["2026-04-26", "Software", "GitHub", "Enterprise add-on", "210", "Pending"],
+                    ["2026-04-29", "Travel", "Booking.com", "Hotel — KL trip", "640", "Approved"],
+                ],
+            },
+        ),
+        (
+            "project_tracker.xlsx",
+            "xlsx",
+            {
+                "columns": ["Task", "Owner", "Priority", "Status", "DueDate", "ProgressPct"],
+                "rows": [
+                    ["Design new landing page", "Carmen", "High", "In Progress", "2026-05-20", "60"],
+                    ["Migrate to Postgres 16", "Devan", "High", "Done", "2026-04-30", "100"],
+                    ["Q2 sales forecast", "Farah", "Medium", "Not Started", "2026-05-25", "0"],
+                    ["Reduce API latency", "Gerald", "High", "In Progress", "2026-05-15", "40"],
+                    ["Onboard new analyst", "Ivan", "Low", "In Progress", "2026-05-22", "30"],
+                    ["Brand refresh assets", "Hannah", "Medium", "Not Started", "2026-06-05", "0"],
+                    ["Refactor billing logic", "Aisha", "High", "In Progress", "2026-05-18", "75"],
+                    ["Customer interviews", "Brandon", "Medium", "Done", "2026-04-25", "100"],
+                ],
+            },
+        ),
+    ]
 
 
 # --- Gmail send (Send button on draft widget) ---
