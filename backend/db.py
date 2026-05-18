@@ -78,9 +78,20 @@ async def init_db():
         await conn.execute(
             "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_id UUID"
         )
+        # Legacy: per-file conversations. Replaced by `workspace`-scoped chats.
+        await conn.execute(
+            "ALTER TABLE conversations DROP COLUMN IF EXISTS file_id"
+        )
+        await conn.execute(
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS workspace TEXT"
+        )
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_conversations_user_updated "
             "ON conversations(user_id, updated_at DESC)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_conversations_workspace "
+            "ON conversations(user_id, workspace) WHERE workspace IS NOT NULL"
         )
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_gmail_creds_email ON gmail_credentials(email)"
@@ -212,11 +223,102 @@ async def create_conversation(user_id: str, title: str) -> str:
     return conv_id
 
 
+async def get_or_create_workspace_conversation(
+    user_id: str, workspace: str, title: str
+) -> str:
+    """Returns the most-recent workspace conv, creating one if none exist."""
+    async with pool.acquire() as conn:
+        existing = await conn.fetchval(
+            "SELECT id FROM conversations WHERE user_id = $1 AND workspace = $2 "
+            "ORDER BY updated_at DESC LIMIT 1",
+            uuid.UUID(user_id),
+            workspace,
+        )
+        if existing:
+            return str(existing)
+        conv_id = str(uuid.uuid4())
+        await conn.execute(
+            "INSERT INTO conversations (id, user_id, title, workspace) "
+            "VALUES ($1, $2, $3, $4)",
+            uuid.UUID(conv_id),
+            uuid.UUID(user_id),
+            title,
+            workspace,
+        )
+    return conv_id
+
+
+async def create_workspace_conversation(
+    user_id: str, workspace: str, title: str
+) -> str:
+    """Always creates a new conversation row (for 'New chat' flow)."""
+    conv_id = str(uuid.uuid4())
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO conversations (id, user_id, title, workspace) "
+            "VALUES ($1, $2, $3, $4)",
+            uuid.UUID(conv_id),
+            uuid.UUID(user_id),
+            title,
+            workspace,
+        )
+    return conv_id
+
+
+async def get_workspace_conversation_id(user_id: str, workspace: str) -> str | None:
+    async with pool.acquire() as conn:
+        existing = await conn.fetchval(
+            "SELECT id FROM conversations WHERE user_id = $1 AND workspace = $2 "
+            "ORDER BY updated_at DESC LIMIT 1",
+            uuid.UUID(user_id),
+            workspace,
+        )
+    return str(existing) if existing else None
+
+
+async def list_workspace_conversations(user_id: str, workspace: str) -> list[dict]:
+    """Return all conversations in this workspace, newest first, with message counts."""
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT c.id, c.title, c.created_at, c.updated_at,
+                   (SELECT count(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count
+            FROM conversations c
+            WHERE c.user_id = $1 AND c.workspace = $2
+            ORDER BY c.updated_at DESC
+            """,
+            uuid.UUID(user_id),
+            workspace,
+        )
+    return [
+        {
+            "id": str(r["id"]),
+            "title": r["title"],
+            "created_at": r["created_at"].isoformat(),
+            "updated_at": r["updated_at"].isoformat(),
+            "message_count": int(r["message_count"]),
+        }
+        for r in rows
+    ]
+
+
+async def clear_workspace_conversation(user_id: str, workspace: str) -> None:
+    """Wipe ALL workspace conversations (used for 'forget everything')."""
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM conversations WHERE user_id = $1 AND workspace = $2",
+            uuid.UUID(user_id),
+            workspace,
+        )
+
+
 async def get_conversations(user_id: str) -> list[dict]:
+    # General chat list excludes workspace-scoped conversations (those have their own panel).
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             "SELECT id, title, created_at, updated_at FROM conversations "
-            "WHERE user_id = $1 ORDER BY updated_at DESC",
+            "WHERE user_id = $1 AND workspace IS NULL "
+            "ORDER BY updated_at DESC",
             uuid.UUID(user_id),
         )
     return [
@@ -440,6 +542,18 @@ async def rename_file_row(file_id: str, user_id: str, name: str):
             "UPDATE files SET name = $1, updated_at = now() "
             "WHERE id = $2 AND user_id = $3",
             name,
+            uuid.UUID(file_id),
+            uuid.UUID(user_id),
+        )
+
+
+async def move_file_row(file_id: str, user_id: str, parent_id: str | None):
+    """Re-parent a file or folder. Caller is responsible for cycle checks."""
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE files SET parent_id = $1, updated_at = now() "
+            "WHERE id = $2 AND user_id = $3",
+            uuid.UUID(parent_id) if parent_id else None,
             uuid.UUID(file_id),
             uuid.UUID(user_id),
         )
