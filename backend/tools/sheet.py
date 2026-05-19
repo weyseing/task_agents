@@ -386,15 +386,18 @@ def _try_float(v: Any) -> float | None:
 SCHEMA_READ = {
     "name": "sheet_read",
     "description": (
-        "Read a workbook. Returns columns (with letters) and rows. Always "
-        "call this (or workbook_peek) before answering questions or editing — "
-        "you need to know the actual structure, not guess from the filename."
+        "Read specific rows of a workbook (paginated). Use this only when you "
+        "need to SEE actual cell values for a known page of rows. "
+        "For 'what does this file look like?' use workbook_peek. "
+        "For counting / summing / averaging / matching across rows, use "
+        "sheet_compute, sheet_pivot, or workbook_join — NEVER read rows and "
+        "compute the answer yourself. Hard cap: 200 rows per call."
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "file": {"type": "string", "description": "Workbook name (e.g. 'employees.csv')"},
-            "limit": {"type": "integer", "description": "Max rows to return (default 100)"},
+            "limit": {"type": "integer", "description": "Max rows to return (default 50, hard cap 200)"},
             "offset": {"type": "integer", "description": "0-based row offset (default 0)"},
         },
         "required": ["file"],
@@ -547,8 +550,10 @@ SCHEMA_COMPUTE = {
     "name": "sheet_compute",
     "description": (
         "Aggregate a column without mutating the sheet. Returns the numeric result. "
-        "Use this to answer questions like 'what's the total revenue?' or "
-        "'how many rows match status=paid?'. For filter/group_by, pass them in."
+        "Use this for ANY count/sum/avg/min/max across more than a few rows — "
+        "do NOT read rows and total them yourself. Supports operator filters: "
+        "is_null/is_not_null (find unmatched rows after an outer join), "
+        "ne/gt/lt (mismatches, thresholds), and column-vs-column comparisons."
     ),
     "parameters": {
         "type": "object",
@@ -561,8 +566,16 @@ SCHEMA_COMPUTE = {
             "column": {"type": "string", "description": "Header, letter, or 0-based index. Required except for op=count (whole sheet)."},
             "where": {
                 "type": "object",
-                "description": "Optional row filter as {column: value}. Equality only.",
-                "additionalProperties": {"type": "string"},
+                "description": (
+                    "Optional row filter. Two forms per entry:\n"
+                    "  literal  — {\"Status\": \"paid\"}  (case-insensitive equality)\n"
+                    "  operator — {\"Amount\": {\"op\": \"gt\", \"value\": 1000}}\n"
+                    "             {\"BankRef\": {\"op\": \"is_null\"}}\n"
+                    "             {\"Amount\": {\"op\": \"ne\", \"col\": \"Amount_r\"}}  (column vs column)\n"
+                    "             {\"Status\": {\"op\": \"in\", \"value\": [\"paid\",\"cleared\"]}}\n"
+                    "Operators: eq, ne, gt, gte, lt, lte, is_null, is_not_null, in, not_in. "
+                    "All entries are ANDed."
+                ),
             },
             "group_by": {"type": "string", "description": "Optional: group results by this column. Returns {group: result}."},
         },
@@ -588,7 +601,9 @@ SCHEMA_FILTER = {
     "name": "sheet_filter",
     "description": (
         "Find rows matching a filter without mutating. Returns the matching rows "
-        "with their 0-based data indices, so you can follow up with set_cells or delete_rows."
+        "with their 0-based data indices, so you can follow up with set_cells or delete_rows. "
+        "Supports operator filters (is_null, ne, gt, in, etc.) and column-vs-column "
+        "comparisons — see `where` below. For counts/sums, prefer sheet_compute."
     ),
     "parameters": {
         "type": "object",
@@ -596,15 +611,23 @@ SCHEMA_FILTER = {
             "file": {"type": "string"},
             "where": {
                 "type": "object",
-                "description": "Equality filter as {column: value}. All conditions must match.",
-                "additionalProperties": {"type": "string"},
+                "description": (
+                    "Row filter. Two forms per entry:\n"
+                    "  literal  — {\"Status\": \"paid\"}  (case-insensitive equality)\n"
+                    "  operator — {\"Amount\": {\"op\": \"gt\", \"value\": 1000}}\n"
+                    "             {\"BankRef\": {\"op\": \"is_null\"}}\n"
+                    "             {\"Amount\": {\"op\": \"ne\", \"col\": \"Amount_r\"}}  (column vs column)\n"
+                    "             {\"Status\": {\"op\": \"in\", \"value\": [\"paid\",\"cleared\"]}}\n"
+                    "Operators: eq, ne, gt, gte, lt, lte, is_null, is_not_null, in, not_in. "
+                    "All entries are ANDed."
+                ),
             },
             "contains": {
                 "type": "object",
                 "description": "Substring (case-insensitive) filter as {column: substring}.",
                 "additionalProperties": {"type": "string"},
             },
-            "limit": {"type": "integer", "description": "Max rows to return (default 50)"},
+            "limit": {"type": "integer", "description": "Max rows to return (default 50, hard cap 200)"},
         },
         "required": ["file"],
     },
@@ -614,8 +637,11 @@ SCHEMA_FILTER = {
 # ---- Handlers ----
 
 
+SHEET_READ_HARD_CAP = 200
+
+
 async def handler_read(
-    *, user_id: str, file: str | None = None, limit: int = 100, offset: int = 0,
+    *, user_id: str, file: str | None = None, limit: int = 50, offset: int = 0,
     sheet: str | int | None = None,
 ) -> dict:
     try:
@@ -626,7 +652,10 @@ async def handler_read(
     rows = sheet["rows"]
     formulas = sheet.get("formulas") or {}
     total = len(rows)
-    sliced = rows[offset : offset + max(0, int(limit))] if limit else rows[offset:]
+    # Hard cap to keep the model from torching its context. For analysis,
+    # the model should use sheet_compute / sheet_pivot / workbook_join.
+    effective_limit = min(max(0, int(limit)), SHEET_READ_HARD_CAP) if limit else SHEET_READ_HARD_CAP
+    sliced = rows[offset : offset + effective_limit]
     # Only return formulas whose row is within the slice the agent sees.
     visible_formulas: dict[str, str] = {}
     if formulas and sliced:
@@ -881,14 +910,93 @@ async def handler_replace_all(
     }
 
 
+_COMPARISON_OPS = {"eq", "ne", "gt", "gte", "lt", "lte", "is_null", "is_not_null", "in", "not_in"}
+
+
+def _cell_str(row: list[str], idx: int) -> str:
+    """Cell as a stripped string, or '' if out of range."""
+    return str(row[idx]).strip() if idx < len(row) else ""
+
+
+def _is_blank(s: str) -> bool:
+    return s == "" or s.lower() in {"none", "null", "nan"}
+
+
+def _cmp_pair(a: str, b: str) -> int | None:
+    """Compare two cell values. Returns -1/0/1, or None if either isn't numeric.
+    Numeric comparison when both parse as float; otherwise case-insensitive string."""
+    fa, fb = _try_float(a), _try_float(b)
+    if fa is not None and fb is not None:
+        return (fa > fb) - (fa < fb)
+    sa, sb = a.lower(), b.lower()
+    return (sa > sb) - (sa < sb)
+
+
+def _eval_predicate(cell: str, spec: dict, row: list[str], columns: list[str]) -> bool:
+    """Evaluate one operator-form predicate against a cell."""
+    op = str(spec.get("op", "eq")).lower()
+    if op not in _COMPARISON_OPS:
+        return False
+    if op == "is_null":
+        return _is_blank(cell)
+    if op == "is_not_null":
+        return not _is_blank(cell)
+    # Operand: either literal `value` or another column via `col`.
+    if "col" in spec:
+        try:
+            other_idx = _col_index(spec["col"], columns)
+        except ValueError:
+            return False
+        operand = _cell_str(row, other_idx)
+    elif "value" in spec:
+        operand = str(spec["value"]).strip() if not isinstance(spec["value"], list) else spec["value"]
+    else:
+        return False
+    if op in {"in", "not_in"}:
+        if not isinstance(operand, list):
+            operand = [operand]
+        normalized = {str(x).strip().lower() for x in operand}
+        hit = cell.lower() in normalized
+        return hit if op == "in" else not hit
+    # Binary comparisons. Treat blank operand as no-match for ordering ops.
+    operand_s = operand if isinstance(operand, str) else str(operand)
+    if op == "eq":
+        return cell.lower() == operand_s.lower()
+    if op == "ne":
+        return cell.lower() != operand_s.lower()
+    c = _cmp_pair(cell, operand_s)
+    if c is None:
+        return False
+    if op == "gt":
+        return c > 0
+    if op == "gte":
+        return c >= 0
+    if op == "lt":
+        return c < 0
+    if op == "lte":
+        return c <= 0
+    return False
+
+
 def _matches(row: list[str], columns: list[str], where: dict) -> bool:
+    """Row-level filter. Each entry is either:
+      - literal:  {col: "value"}                                  → case-insensitive eq
+      - operator: {col: {"op": <op>, "value": x | "col": "other"}}
+    Operators: eq, ne, gt, gte, lt, lte, is_null, is_not_null, in, not_in.
+    Column-vs-column via {"op": "<op>", "col": "<other_col>"}.
+    """
     for k, v in (where or {}).items():
         try:
             idx = _col_index(k, columns)
         except ValueError:
             return False
-        if str(row[idx]).strip().lower() != str(v).strip().lower():
-            return False
+        cell = _cell_str(row, idx)
+        if isinstance(v, dict):
+            if not _eval_predicate(cell, v, row, columns):
+                return False
+        else:
+            if cell.lower() != str(v).strip().lower():
+                return False
     return True
 
 
@@ -1006,6 +1114,8 @@ async def handler_filter(
         return {"error": str(e)}
     columns = sheet["columns"]
     matches: list[dict] = []
+    total_match_count = 0
+    effective_limit = min(max(1, int(limit or 50)), SHEET_READ_HARD_CAP)
     for i, row in enumerate(sheet["rows"]):
         if where and not _matches(row, columns, where):
             continue
@@ -1021,15 +1131,17 @@ async def handler_filter(
                 break
         if not ok:
             continue
-        matches.append({"index": i, "row": row})
-        if len(matches) >= max(1, int(limit or 50)):
-            break
+        total_match_count += 1
+        if len(matches) < effective_limit:
+            matches.append({"index": i, "row": row})
     return {
         "type": "filter_result",
         "file_id": fid,
         "columns": columns,
         "matches": matches,
-        "match_count": len(matches),
+        "returned_count": len(matches),
+        "total_match_count": total_match_count,
+        "truncated": total_match_count > len(matches),
     }
 
 
@@ -1234,12 +1346,17 @@ SCHEMA_WORKBOOK_LIST = {
 
 SCHEMA_WORKBOOK_PEEK = {
     "name": "workbook_peek",
-    "description": "Preview another workbook: columns + first N rows. Read-only.",
+    "description": (
+        "Preview a workbook: columns + first N rows + row count. Read-only. "
+        "Always call this FIRST on any file you haven't seen yet — it's the "
+        "cheapest way to learn structure. Use this for 'what does this file "
+        "look like?'; use sheet_read only when you need a specific page of rows."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
             "file": {"type": "string", "description": "Workbook name or id"},
-            "limit": {"type": "integer", "description": "Rows to preview (default 10)"},
+            "limit": {"type": "integer", "description": "Rows to preview (default 10, max 50)"},
         },
         "required": ["file"],
     },
@@ -1848,11 +1965,15 @@ async def handler_workbook_join(
         right_by_key.setdefault(k, []).append(row)
     matched_right_keys: set[str] = set()
 
+    matched_left_count = 0
+    unmatched_left_count = 0
+
     out_rows: list[list[str]] = []
     for l_row in l_sheet["rows"]:
         k = l_row[li] if li < len(l_row) else ""
         matches = right_by_key.get(k, [])
         if matches:
+            matched_left_count += 1
             matched_right_keys.add(k)
             for r_row in matches:
                 combined = list(l_row)
@@ -1862,13 +1983,18 @@ async def handler_workbook_join(
                     combined.append(r_row[j] if j < len(r_row) else "")
                 out_rows.append(combined)
         elif how in ("left", "outer"):
+            unmatched_left_count += 1
             combined = list(l_row) + ["" for alias in right_aliases if alias is not None]
             out_rows.append(combined)
+        else:
+            unmatched_left_count += 1
 
-    if how in ("right", "outer"):
-        for k, rows in right_by_key.items():
-            if k in matched_right_keys:
-                continue
+    unmatched_right_count = 0
+    for k, rows in right_by_key.items():
+        if k in matched_right_keys:
+            continue
+        unmatched_right_count += len(rows)
+        if how in ("right", "outer"):
             for r_row in rows:
                 combined = ["" for _ in l_sheet["columns"]]
                 # Put the join key into the left key position so it isn't blank
@@ -1879,6 +2005,14 @@ async def handler_workbook_join(
                         continue
                     combined.append(r_row[j] if j < len(r_row) else "")
                 out_rows.append(combined)
+
+    # Duplicate-key detection (fan-out warning)
+    left_key_counts: dict[str, int] = {}
+    for row in l_sheet["rows"]:
+        k = row[li] if li < len(row) else ""
+        left_key_counts[k] = left_key_counts.get(k, 0) + 1
+    duplicate_keys_left = sum(1 for c in left_key_counts.values() if c > 1)
+    duplicate_keys_right = sum(1 for rows in right_by_key.values() if len(rows) > 1)
 
     ftype = "xlsx" if save_as.lower().endswith(".xlsx") else "csv"
     parent_id = await _resolve_parent_id(user_id, None, parent)
@@ -1892,7 +2026,14 @@ async def handler_workbook_join(
         "right": right,
         "on_left": l_sheet["columns"][li],
         "on_right": r_sheet["columns"][ri],
+        "left_row_count": len(l_sheet["rows"]),
+        "right_row_count": len(r_sheet["rows"]),
         "row_count": len(out_rows),
+        "matched_left_count": matched_left_count,
+        "unmatched_left_count": unmatched_left_count,
+        "unmatched_right_count": unmatched_right_count,
+        "duplicate_keys_left": duplicate_keys_left,
+        "duplicate_keys_right": duplicate_keys_right,
         "saved_as": new,
     }
 
