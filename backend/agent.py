@@ -19,6 +19,13 @@ logger = logging.getLogger(__name__)
 from tools import get_tools, execute_tool
 
 MODEL = os.getenv("LITELLM_MODEL", "anthropic/claude-haiku-4-5")
+MODEL_DEEP = os.getenv("LITELLM_MODEL_DEEP", "anthropic/claude-sonnet-4-6")
+# Per-toolset model routing. Chat is light → Haiku. Excel does joins,
+# aggregations, and long tool chains → Sonnet (higher ITPM, stronger reasoning).
+MODEL_BY_TOOLSET = {
+    "general": MODEL,
+    "excel":   MODEL_DEEP,
+}
 MAX_ITERATIONS = 15
 # Anthropic enforces a 50K input-token/min rate limit on Haiku.
 # Multi-step tool chains hit it; back off and retry rather than fail the turn.
@@ -60,9 +67,11 @@ async def run_agent(
     The caller wraps these into SSE frames and persists final state.
     """
     tools = get_tools(toolset=toolset)
+    model = MODEL_BY_TOOLSET.get(toolset, MODEL)
+    logger.info("run_agent toolset=%s model=%s", toolset, model)
 
     kwargs = dict(
-        model=MODEL,
+        model=model,
         messages=messages,
         tools=tools,
         stream=True,

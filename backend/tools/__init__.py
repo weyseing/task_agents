@@ -128,6 +128,8 @@ async def execute_tool(name: str, args: dict, user_id: str) -> dict:
     """Execute a tool by name. Injects user_id for tools that need it.
 
     Sheet/workbook tools take a `file` arg from the model (workbook name or id).
+    Unknown kwargs (LLMs sometimes invent them) come back as a tool error rather
+    than crashing the stream — the model can then retry with a valid signature.
     """
     if name not in REGISTRY:
         return {"error": f"Unknown tool: {name}"}
@@ -135,4 +137,12 @@ async def execute_tool(name: str, args: dict, user_id: str) -> dict:
     kwargs = dict(args)
     if name in USER_SCOPED:
         kwargs["user_id"] = user_id
-    return await handler(**kwargs)
+    try:
+        return await handler(**kwargs)
+    except TypeError as e:
+        msg = str(e)
+        # Surface unexpected-kwarg and missing-kwarg errors as tool errors so the
+        # agent can self-correct on the next turn instead of crashing the stream.
+        if "unexpected keyword argument" in msg or "missing" in msg and "required" in msg:
+            return {"error": f"Tool '{name}' rejected arguments: {msg}"}
+        raise
